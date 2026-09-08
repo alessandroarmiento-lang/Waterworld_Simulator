@@ -381,7 +381,7 @@ function placeSearchMarker(city, elevM) {
   const el = document.createElement("button");
   el.type = "button";
   el.className = "landmark-label landmark-city is-selected search-result-label";
-  el.innerHTML = '<span class="dot">●</span><span class="txt">' + city.name + '</span><span class="elev">'
+  el.innerHTML = '<span class="dot">●</span><span class="txt">' + city.name + '</span><span class="elev">≈ '
     + city.pop.toLocaleString("it-IT") + " ab.</span>";
   el.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -412,7 +412,10 @@ function selectWorldCity(city) {
   for (const entry of entries) entry.el.classList.toggle("is-selected", false);
   const elevM = elevMetersAt(city.lat, city.lon);
   placeSearchMarker(city, elevM);
-  inspectGlobe(city.lat, city.lon);
+  probeInfo = describePoint(city.lat, city.lon);
+  if (probeMarker) probeMarker.visible = false;
+  renderProbe(probeInfo);
+  rebuildList();
   flyTo({ lat: city.lat, lon: city.lon, elev: elevM });
 }
 
@@ -642,7 +645,7 @@ function rebuildList() {
         const city = match.city;
         const elevM = elevMetersAt(city.lat, city.lon);
         btn.className = "landmark-item";
-        btn.innerHTML = '<span class="kind" style="color:#7ec8ff">●</span><span class="body"><strong>' + city.name + '</strong><small>Città · ' + city.pop.toLocaleString("it-IT") + " ab. · " + formatElev(elevM) + ' · <em class="flood-' + floodState(elevM) + '">' + floodLabel(elevM) + "</em></small></span>";
+        btn.innerHTML = '<span class="kind" style="color:#7ec8ff">●</span><span class="body"><strong>' + city.name + '</strong><small>Città · ≈ ' + city.pop.toLocaleString("it-IT") + " ab. (GeoNames) · " + formatElev(elevM) + ' · <em class="flood-' + floodState(elevM) + '">' + floodLabel(elevM) + "</em></small></span>";
         btn.addEventListener("click", () => selectWorldCity(city));
       }
       listEl.appendChild(btn);
@@ -728,10 +731,10 @@ function renderProbe(info) {
   let place = "";
   if (info.worldCity && info.worldCity.km <= 12) {
     place = '<p class="sel-note">Città: <strong>' + info.worldCity.name + "</strong>"
-      + " · " + info.worldCity.pop.toLocaleString("it-IT") + " ab.</p>";
+      + " · ≈ " + info.worldCity.pop.toLocaleString("it-IT") + " ab. (GeoNames)</p>";
   } else if (info.worldCity) {
     place = '<p class="sel-note">Città più vicina: <strong>' + info.worldCity.name + "</strong> ("
-      + formatKm(info.worldCity.km) + ") · " + info.worldCity.pop.toLocaleString("it-IT") + " ab.</p>";
+      + formatKm(info.worldCity.km) + ") · ≈ " + info.worldCity.pop.toLocaleString("it-IT") + " ab. (GeoNames)</p>";
   } else if (info.city && info.city.km <= 12) {
     place = '<p class="sel-note">Città: <strong>' + info.city.item.name + "</strong>"
       + (info.city.item.note ? " — " + info.city.item.note : "") + "</p>";

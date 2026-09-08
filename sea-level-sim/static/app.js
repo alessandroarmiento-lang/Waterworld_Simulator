@@ -23,6 +23,7 @@ const searchFormEl = document.getElementById("landmark-search-form");
 const selectedEl = document.getElementById("selected-landmark");
 const rotateEl = document.getElementById("rotate-globe");
 const panelEl = document.querySelector(".panel");
+const pinTooltipEl = document.getElementById("pin-tooltip");
 
 const EARTH_RADIUS = 2;
 const DISP_SCALE = 0.16;
@@ -52,11 +53,14 @@ const PIN_HEIGHT = 0.0085;
 const pinGeometry = new THREE.CylinderGeometry(0.0052, 0.0052, PIN_HEIGHT, 3);
 pinGeometry.translate(0, PIN_HEIGHT / 2, 0);
 pinGeometry.computeVertexNormals();
+const pinHitGeometry = new THREE.SphereGeometry(0.032, 10, 10);
+const pinHitMaterial = new THREE.MeshBasicMaterial({ visible: false });
 const pinMaterialDry = new THREE.MeshBasicMaterial({ color: 0x22c55e, flatShading: true });
 const pinMaterialFlooded = new THREE.MeshBasicMaterial({ color: 0xe11d2e, flatShading: true });
 function pinMaterialFor(elevM) {
   return floodState(elevM) === "flooded" ? pinMaterialFlooded : pinMaterialDry;
 }
+let hoverLandmarkId = null;
 
 function setStatus(message, kind = "info") {
   if (!message) { statusEl.hidden = true; statusEl.textContent = ""; return; }
@@ -372,18 +376,74 @@ function placeMarker(entry) {
 function createMarker(item) {
   const meta = TYPE_META[item.type];
   const pin = new THREE.Mesh(pinGeometry, pinMaterialFor(item.elev));
+  const hit = new THREE.Mesh(pinHitGeometry, pinHitMaterial);
+  hit.position.y = PIN_HEIGHT * 0.55;
+  pin.add(hit);
   const el = document.createElement("button");
   el.type = "button";
   el.className = "landmark-label landmark-" + item.type;
   el.dataset.id = item.id;
   el.innerHTML = '<span class="dot">' + meta.short + '</span><span class="txt">' + item.name + '</span><span class="elev">' + formatElev(item.elev) + "</span>";
   el.addEventListener("click", (event) => { event.stopPropagation(); selectLandmark(item.id, true); });
+  el.addEventListener("pointerenter", () => showPinTooltip(item, null));
+  el.addEventListener("pointerleave", () => hidePinTooltip(item.id));
+  el.addEventListener("pointermove", (event) => positionPinTooltip(event.clientX, event.clientY));
   const label = new CSS2DObject(el);
   landmarksRoot.add(pin);
   landmarksRoot.add(label);
-  const entry = { item, pin, label, el };
+  const entry = { item, pin, hit, label, el };
   placeMarker(entry);
   return entry;
+}
+
+function landmarkTooltipHtml(item) {
+  const meta = TYPE_META[item.type];
+  const state = floodLabel(item.elev);
+  let html = "<strong>" + item.name + "</strong>"
+    + '<div class="tt-meta">' + meta.label + " · " + formatElev(item.elev) + " · " + state + "</div>";
+  if (item.note) html += '<div class="tt-note">' + item.note + "</div>";
+  return html;
+}
+
+function positionPinTooltip(clientX, clientY) {
+  if (!pinTooltipEl || pinTooltipEl.hidden) return;
+  const pad = 12;
+  const tw = pinTooltipEl.offsetWidth || 180;
+  const th = pinTooltipEl.offsetHeight || 60;
+  let left = clientX + 14;
+  let top = clientY + 16;
+  if (left + tw > window.innerWidth - pad) left = clientX - tw - 12;
+  if (top + th > window.innerHeight - pad) top = clientY - th - 10;
+  pinTooltipEl.style.left = Math.max(pad, left) + "px";
+  pinTooltipEl.style.top = Math.max(pad, top) + "px";
+}
+
+function showPinTooltip(item, event) {
+  if (!pinTooltipEl) return;
+  hoverLandmarkId = item.id;
+  pinTooltipEl.innerHTML = landmarkTooltipHtml(item);
+  pinTooltipEl.hidden = false;
+  if (event) positionPinTooltip(event.clientX, event.clientY);
+  canvas.style.cursor = "pointer";
+}
+
+function hidePinTooltip(id) {
+  if (id && hoverLandmarkId !== id) return;
+  hoverLandmarkId = null;
+  if (pinTooltipEl) pinTooltipEl.hidden = true;
+  canvas.style.cursor = "crosshair";
+}
+
+function pickPinUnderPointer(event) {
+  if (!earth || !entries.length) return null;
+  const rect = canvas.getBoundingClientRect();
+  pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointerNdc, camera);
+  const hits = entries.filter((e) => e.pin.visible).map((e) => e.hit);
+  const hit = raycaster.intersectObjects(hits, false)[0];
+  if (!hit) return null;
+  return entries.find((e) => e.hit === hit.object) || null;
 }
 
 function rebuildList() {
@@ -525,10 +585,10 @@ function pickOnCanvas(event) {
   pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointerNdc, camera);
-  const pinMeshes = entries.map((entry) => entry.pin);
+  const pinMeshes = entries.map((entry) => entry.hit);
   const pinHit = raycaster.intersectObjects(pinMeshes, false)[0];
   if (pinHit) {
-    const entry = entries.find((e) => e.pin === pinHit.object);
+    const entry = entries.find((e) => e.hit === pinHit.object);
     if (entry) {
       if (probeMarker) probeMarker.visible = false;
       probeInfo = null;
@@ -678,6 +738,17 @@ canvas.addEventListener("pointerdown", (event) => {
   if (event.button !== 0) return;
   pointerDown = { x: event.clientX, y: event.clientY };
 });
+canvas.addEventListener("pointermove", (event) => {
+  const entry = pickPinUnderPointer(event);
+  if (entry) {
+    if (hoverLandmarkId !== entry.item.id) showPinTooltip(entry.item, event);
+    else positionPinTooltip(event.clientX, event.clientY);
+  } else if (hoverLandmarkId) {
+    // Non nascondere se il tooltip è gestito dall’etichetta HTML.
+    const overLabel = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".landmark-label");
+    if (!overLabel) hidePinTooltip(hoverLandmarkId);
+  }
+});
 canvas.addEventListener("pointerup", (event) => {
   if (!pointerDown || event.button !== 0) return;
   const dx = event.clientX - pointerDown.x;
@@ -686,7 +757,10 @@ canvas.addEventListener("pointerup", (event) => {
   if (dx * dx + dy * dy > 36) return;
   pickOnCanvas(event);
 });
-canvas.addEventListener("pointerleave", () => { pointerDown = null; });
+canvas.addEventListener("pointerleave", () => {
+  pointerDown = null;
+  hidePinTooltip(hoverLandmarkId);
+});
 window.addEventListener("resize", () => {
   const w = window.innerWidth, h = window.innerHeight;
   camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); labelRenderer.setSize(w, h);

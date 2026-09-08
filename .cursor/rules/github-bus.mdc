@@ -1,0 +1,27 @@
+---
+description: GitHub origin/main is the mailbox between Mac, Cloud Agent, and iPhone
+alwaysApply: true
+---
+
+# GitHub bus — always aligned
+
+**Bus = `origin/main`.** Mac Cursor, Cloud Agent and iPhone share the same tree. Devices do not need to be online together.
+
+## Every session (Mac and Cloud)
+
+1. Run `./deploy/check_github_before_work.sh` before editing (hooks also run it).
+2. If it pulled commits, say so in Italian.
+3. If it warns about a dirty tree, say so and do not overwrite local edits.
+
+## After finished work
+
+1. Commit + push.
+2. Run `./deploy/land_on_main.sh` so work lives on `main`, not only on a draft PR.
+3. Do not tell Alessandro “the other device will see it after you merge” as the normal path — land it yourself.
+
+## Non-goals
+
+- Live chat sync between Cursors
+- Syncing uncommitted files
+- Syncing `.env` / secrets
+- Copying Minda Pi/hub deploy unless this project has those devices

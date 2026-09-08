@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="it">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simulatore livello del mare</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/static/vendor/three.module.js",
+          "three/addons/": "/static/vendor/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="globe"></canvas>
+      <aside class="panel" aria-label="Controlli simulazione">
+        <header>
+          <p class="eyebrow">Esperimento mentale</p>
+          <h1>Livello del mare</h1>
+          <p class="lede">
+            Globo offline con vette, città e punti di interesse (con altitudine).
+            Alza il mare fino allo scenario estremo: restano solo le cime più alte.
+          </p>
+        </header>
+        <label class="slider-block" for="sea-slider">
+          <span class="slider-label">
+            Livello del mare
+            <strong id="sea-value">0 m</strong>
+          </span>
+          <input id="sea-slider" type="range" min="0" max="9000" step="10" value="0" />
+          <span class="slider-ends"><span>0 m</span><span>9000 m</span></span>
+        </label>
+        <div class="presets" role="group" aria-label="Scenari">
+          <button type="button" data-level="0">Attuale</button>
+          <button type="button" data-level="70">Ghiacci (+70 m)</button>
+          <button type="button" data-level="135">Ghiacci + falde (+135 m)</button>
+          <button type="button" data-level="2000">Alte montagne (+2000 m)</button>
+          <button type="button" data-level="5000">Solo grandi vette (+5000 m)</button>
+          <button type="button" data-level="8500">Solo ottomila (+8500 m)</button>
+          <button type="button" data-level="9000">Waterworld totale (+9000 m)</button>
+        </div>
+        <fieldset class="filters">
+          <legend>Mostra su globo</legend>
+          <label><input id="filter-peak" type="checkbox" checked /> Vette</label>
+          <label><input id="filter-city" type="checkbox" checked /> Città</label>
+          <label><input id="filter-poi" type="checkbox" checked /> Punti di interesse</label>
+        </fieldset>
+        <label class="rotate-row">
+          <input id="rotate-globe" type="checkbox" checked />
+          Rotazione automatica
+        </label>
+        <div class="search-block">
+          <label for="landmark-search">Cerca luogo</label>
+          <input id="landmark-search" type="search" placeholder="Es. Venezia, Everest, Amazzonia…" autocomplete="off" />
+        </div>
+        <div id="selected-landmark" class="selected" hidden></div>
+        <div id="landmark-list" class="landmark-list" aria-label="Elenco luoghi"></div>
+        <p class="note">
+          Ogni luogo mostra la quota. Oltre +135 m lo scenario è narrativo / non scientifico.
+        </p>
+      </aside>
+      <div id="status" class="status" hidden></div>
+    </div>
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

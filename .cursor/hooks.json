@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": ".cursor/hooks/github-check.sh session",
+        "timeout": 180
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": ".cursor/hooks/github-check.sh prompt",
+        "timeout": 180
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": ".cursor/hooks/github-check.sh tool",
+        "timeout": 180
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": ".cursor/hooks/session-end-backup.sh",
+        "timeout": 300
+      }
+    ],
+    "stop": [
+      {
+        "command": ".cursor/hooks/session-end-backup.sh",
+        "timeout": 300,
+        "loop_limit": 0
+      }
+    ]
+  }
+}

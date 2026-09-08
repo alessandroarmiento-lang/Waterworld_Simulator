@@ -1,0 +1,21 @@
+---
+description: Brief GitHub main status at session start (Mac and Cloud/mobile)
+alwaysApply: true
+---
+
+# Peer session briefing
+
+Sync bus = **`origin/main`**.
+
+On the first reply, in Italian, say whether this checkout matches `origin/main` and if any work is still only on a draft PR.
+
+```bash
+./deploy/check_github_before_work.sh
+./deploy/report_peer_sync.sh
+```
+
+After finished work:
+
+```bash
+./deploy/land_on_main.sh
+```

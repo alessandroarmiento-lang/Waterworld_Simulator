@@ -9,7 +9,7 @@ import { lookupMountainRange } from "./mountain-ranges.js?v=1";
 const canvas = document.getElementById("globe");
 const appRoot = document.getElementById("app");
 const slider = document.getElementById("sea-slider");
-const seaValue = document.getElementById("sea-value");
+const seaInput = document.getElementById("sea-input");
 const statusEl = document.getElementById("status");
 const presetButtons = [...document.querySelectorAll("[data-level]")];
 const filterChecks = {
@@ -932,24 +932,45 @@ async function buildGlobe() {
   rebuildList();
 }
 
+function clampSeaLevel(meters) {
+  const n = Number(meters);
+  if (!Number.isFinite(n)) return seaLevelM;
+  return THREE.MathUtils.clamp(Math.round(n), 0, 9000);
+}
+
 function applySeaLevel(meters) {
-  seaLevelM = meters;
-  seaValue.textContent = formatSea(meters);
-  setSeaUniform(meters);
+  const level = clampSeaLevel(meters);
+  seaLevelM = level;
+  slider.value = String(level);
+  if (document.activeElement !== seaInput) seaInput.value = String(level);
+  setSeaUniform(level);
   if (ocean) {
-    ocean.scale.setScalar(oceanRadius(meters));
-    ocean.visible = meters > 0.5;
+    ocean.scale.setScalar(oceanRadius(level));
+    ocean.visible = level > 0.5;
   }
-  for (const btn of presetButtons) btn.classList.toggle("active", Number(btn.dataset.level) === meters);
+  for (const btn of presetButtons) btn.classList.toggle("active", Number(btn.dataset.level) === level);
   refreshFloodUI();
 }
 
 slider.addEventListener("input", () => applySeaLevel(Number(slider.value)));
+seaInput.addEventListener("input", () => {
+  if (seaInput.value === "" || seaInput.value === "-") return;
+  applySeaLevel(seaInput.value);
+});
+seaInput.addEventListener("change", () => {
+  applySeaLevel(seaInput.value === "" ? 0 : seaInput.value);
+  seaInput.value = String(seaLevelM);
+});
+seaInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  applySeaLevel(seaInput.value === "" ? 0 : seaInput.value);
+  seaInput.value = String(seaLevelM);
+  seaInput.blur();
+});
 for (const btn of presetButtons) {
   btn.addEventListener("click", () => {
-    const level = Number(btn.dataset.level);
-    slider.value = String(level);
-    applySeaLevel(level);
+    applySeaLevel(Number(btn.dataset.level));
   });
 }
 for (const [type, input] of Object.entries(filterChecks)) {

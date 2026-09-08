@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Simulatore livello del mare</title>
-    <link rel="stylesheet" href="/static/style.css?v=11" />
+    <link rel="stylesheet" href="/static/style.css?v=12" />
     <script type="importmap">
       {
         "imports": {
@@ -26,14 +26,17 @@
             Clicca un punto sulla mappa per quota, città e tipo di suolo.
           </p>
         </header>
-        <label class="slider-block" for="sea-slider">
-          <span class="slider-label">
-            Livello del mare
-            <strong id="sea-value">0 m</strong>
-          </span>
-          <input id="sea-slider" type="range" min="0" max="9000" step="10" value="0" />
+        <div class="slider-block">
+          <div class="slider-label">
+            <label for="sea-slider">Livello del mare</label>
+            <label class="sea-input-wrap" for="sea-input">
+              <input id="sea-input" type="number" min="0" max="9000" step="1" value="0" inputmode="numeric" />
+              <span>m</span>
+            </label>
+          </div>
+          <input id="sea-slider" type="range" min="0" max="9000" step="10" value="0" aria-label="Livello del mare (cursore)" />
           <span class="slider-ends"><span>0 m</span><span>9000 m</span></span>
-        </label>
+        </div>
         <div class="presets" role="group" aria-label="Scenari">
           <button type="button" data-level="0">Attuale</button>
           <button type="button" data-level="70">Ghiacci (+70 m)</button>
@@ -70,6 +73,6 @@
       <div id="status" class="status" hidden></div>
       <div id="pin-tooltip" class="pin-tooltip" hidden role="tooltip"></div>
     </div>
-    <script type="module" src="/static/app.js?v=27"></script>
+    <script type="module" src="/static/app.js?v=28"></script>
   </body>
 </html>

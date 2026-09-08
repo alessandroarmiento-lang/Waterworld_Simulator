@@ -16,8 +16,31 @@ html, body { margin: 0; height: 100%; background: radial-gradient(ellipse at 30%
 h1 { margin: 0; font-family: var(--font-display); font-size: 1.75rem; font-weight: 600; line-height: 1.1; }
 .lede { margin: .6rem 0 1.1rem; color: var(--muted); font-size: .9rem; line-height: 1.45; }
 .slider-block { display: grid; gap: .5rem; }
-.slider-label { display: flex; justify-content: space-between; gap: 1rem; font-size: .9rem; }
-.slider-label strong { font-variant-numeric: tabular-nums; color: var(--accent); }
+.slider-label { display: flex; justify-content: space-between; align-items: center; gap: 1rem; font-size: .9rem; }
+.sea-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.sea-input-wrap input {
+  width: 5.2rem;
+  border: 1px solid var(--line);
+  border-radius: .45rem;
+  background: rgba(255,255,255,.05);
+  color: var(--accent);
+  padding: .3rem .45rem;
+  font: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.sea-input-wrap input:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
 input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
 .slider-ends { display: flex; justify-content: space-between; color: var(--muted); font-size: .75rem; }
 .presets { display: grid; gap: .4rem; margin-top: .9rem; }

@@ -946,40 +946,65 @@ function clampSeaLevel(meters) {
   return THREE.MathUtils.clamp(Math.round(n), 0, 9000);
 }
 
+/** Single source of truth: slider, number field and presets always match. */
 function applySeaLevel(meters) {
   const level = clampSeaLevel(meters);
   seaLevelM = level;
   slider.value = String(level);
-  if (document.activeElement !== seaInput) seaInput.value = String(level);
+  slider.setAttribute("aria-valuenow", String(level));
+  seaInput.value = String(level);
   setSeaUniform(level);
   if (ocean) {
     ocean.scale.setScalar(oceanRadius(level));
     ocean.visible = level > 0.5;
   }
-  for (const btn of presetButtons) btn.classList.toggle("active", Number(btn.dataset.level) === level);
+  for (const btn of presetButtons) {
+    const preset = Number(btn.dataset.level);
+    const on = preset === level;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
   refreshFloodUI();
 }
 
 slider.addEventListener("input", () => applySeaLevel(Number(slider.value)));
 seaInput.addEventListener("input", () => {
-  if (seaInput.value === "" || seaInput.value === "-") return;
-  applySeaLevel(seaInput.value);
+  const raw = seaInput.value.trim();
+  if (raw === "" || raw === "-") return;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return;
+  // Update globe + slider without rewriting the field on every keystroke mid-edit
+  // unless clamp changed the value (e.g. >9000).
+  const level = clampSeaLevel(n);
+  seaLevelM = level;
+  slider.value = String(level);
+  slider.setAttribute("aria-valuenow", String(level));
+  setSeaUniform(level);
+  if (ocean) {
+    ocean.scale.setScalar(oceanRadius(level));
+    ocean.visible = level > 0.5;
+  }
+  for (const btn of presetButtons) {
+    const preset = Number(btn.dataset.level);
+    const on = preset === level;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  refreshFloodUI();
+  if (n !== level) seaInput.value = String(level);
 });
 seaInput.addEventListener("change", () => {
-  applySeaLevel(seaInput.value === "" ? 0 : seaInput.value);
-  seaInput.value = String(seaLevelM);
+  applySeaLevel(seaInput.value.trim() === "" ? 0 : seaInput.value);
 });
 seaInput.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
   event.preventDefault();
-  applySeaLevel(seaInput.value === "" ? 0 : seaInput.value);
-  seaInput.value = String(seaLevelM);
+  applySeaLevel(seaInput.value.trim() === "" ? 0 : seaInput.value);
   seaInput.blur();
 });
 for (const btn of presetButtons) {
-  btn.addEventListener("click", () => {
-    applySeaLevel(Number(btn.dataset.level));
-  });
+  btn.setAttribute("aria-pressed", "false");
+  btn.addEventListener("click", () => applySeaLevel(Number(btn.dataset.level)));
 }
 for (const [type, input] of Object.entries(filterChecks)) {
   input.addEventListener("change", () => {

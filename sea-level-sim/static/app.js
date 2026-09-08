@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
-import { LANDMARKS, TYPE_META } from "./landmarks.js?v=8";
+import { LANDMARKS, TYPE_META } from "./landmarks.js?v=9";
 import { loadCountries, lookupCountry, oceanBasin } from "./country-lookup.js?v=1";
 import { loadCities, nearestCity } from "./cities-lookup.js?v=1";
+import { lookupMountainRange } from "./mountain-ranges.js?v=1";
 
 const canvas = document.getElementById("globe");
 const appRoot = document.getElementById("app");
@@ -161,6 +162,7 @@ function describePoint(lat, lon) {
   const lights = sampleLights ? sampleLights(lat, lon, 2) : 0;
   const worldCity = nearestCity(lat, lon, 45);
   const city = nearestLandmark(lat, lon, "city", 80);
+  const peak = nearestLandmark(lat, lon, "peak", 120);
   const nearby = nearestLandmark(lat, lon, null, 35);
   let country = lookupCountry(lat, lon);
   // Costa / isole piccole: prova punti vicini se il poligono manca il bordo.
@@ -188,11 +190,30 @@ function describePoint(lat, lon) {
   } else {
     cover = "terreno";
   }
+  let mountainRange = null;
+  const mountainLike = elevM >= 800
+    || cover === "alta montagna / altopiano"
+    || cover === "collina / rilievo"
+    || (peak && peak.km <= 40);
+  if (mountainLike) {
+    if (peak && peak.km <= 55 && peak.item.range) {
+      mountainRange = { name: peak.item.range, source: "peak", peak: peak.item.name, km: peak.km };
+    } else {
+      const region = lookupMountainRange(lat, lon, elevM);
+      if (region) mountainRange = { name: region.name, source: region.source };
+      else if (peak && peak.km <= 100 && peak.item.range) {
+        mountainRange = { name: peak.item.range, source: "peak", peak: peak.item.name, km: peak.km };
+      }
+    }
+  }
   let placeName = null;
-  if (worldCity && worldCity.km <= 25) placeName = worldCity.name;
+  if (peak && peak.km <= 8) placeName = peak.item.name;
+  else if (worldCity && worldCity.km <= 25) placeName = worldCity.name;
   else if (city && city.km <= 15) placeName = city.item.name;
   else if (nearby && nearby.km <= 20) placeName = nearby.item.name;
-  return { lat, lon, elevM, lights, worldCity, city, nearby, cover, country, basin, placeName };
+  return {
+    lat, lon, elevM, lights, worldCity, city, peak, nearby, cover, country, basin, placeName, mountainRange,
+  };
 }
 function formatCoords(lat, lon) {
   const ns = lat >= 0 ? "N" : "S";
@@ -401,6 +422,7 @@ function landmarkTooltipHtml(item) {
   const state = floodLabel(item.elev);
   let html = "<strong>" + item.name + "</strong>"
     + '<div class="tt-meta">' + meta.label + " · " + formatElev(item.elev) + " · " + state + "</div>";
+  if (item.range) html += '<div class="tt-meta">Catena: ' + item.range + "</div>";
   if (item.note) html += '<div class="tt-note">' + item.note + "</div>";
   return html;
 }
@@ -541,6 +563,14 @@ function renderProbe(info) {
     const meta = TYPE_META[info.nearby.item.type];
     nearby = '<p class="sel-note">Nel catalogo vicino: ' + meta.label.toLowerCase() + " <strong>" + info.nearby.item.name + "</strong> (" + formatKm(info.nearby.km) + ")</p>";
   }
+  let rangeLine = "";
+  if (info.mountainRange) {
+    rangeLine = '<p class="sel-note">Catena montuosa: <strong>' + info.mountainRange.name + "</strong>";
+    if (info.mountainRange.peak && info.mountainRange.km != null && info.mountainRange.km > 2) {
+      rangeLine += " (vicino a " + info.mountainRange.peak + ", " + formatKm(info.mountainRange.km) + ")";
+    }
+    rangeLine += "</p>";
+  }
   let floodLine = '<p class="sel-flood flood-' + state + '">Con mare a ' + formatSea(seaLevelM) + ': <strong>' + floodLabel(info.elevM) + "</strong></p>";
   if (info.cover === "mare / oceano" && seaLevelM < 1) {
     floodLine = '<p class="sel-note">Mare attuale (quota 0).</p>';
@@ -551,7 +581,7 @@ function renderProbe(info) {
     + "Tipo suolo: <strong>" + info.cover + "</strong><br>"
     + "Altitudine: <strong>" + formatElev(info.elevM) + "</strong> s.l.m.<br>"
     + formatCoords(info.lat, info.lon) + "</p>"
-    + place + nearby + floodLine;
+    + rangeLine + place + nearby + floodLine;
 }
 
 function placeProbe(lat, lon, elevM) {
@@ -608,8 +638,22 @@ function renderSelection(id) {
   if (!item) { selectedEl.hidden = true; return; }
   const meta = TYPE_META[item.type];
   const state = floodState(item.elev);
+  const country = lookupCountry(item.lat, item.lon);
+  let rangeName = item.range || null;
+  if (!rangeName && item.type === "peak") {
+    const region = lookupMountainRange(item.lat, item.lon, item.elev);
+    if (region) rangeName = region.name;
+  }
+  let geo = "";
+  if (country) geo += "Paese: <strong>" + country.name + "</strong>" + (country.continent ? " · " + country.continent : "") + "<br>";
+  if (rangeName) geo += "Catena montuosa: <strong>" + rangeName + "</strong><br>";
   selectedEl.hidden = false;
-  selectedEl.innerHTML = '<p class="sel-kicker" style="color:' + meta.color + '">' + meta.label + '</p><h2>' + item.name + '</h2><p class="sel-meta">Altitudine: <strong>' + formatElev(item.elev) + '</strong> s.l.m.<br>lat ' + item.lat.toFixed(2) + ' · lon ' + item.lon.toFixed(2) + '</p><p class="sel-note">' + (item.note || '') + '</p><p class="sel-flood flood-' + state + '">Con mare a ' + formatSea(seaLevelM) + ': <strong>' + floodLabel(item.elev) + '</strong></p>';
+  selectedEl.innerHTML = '<p class="sel-kicker" style="color:' + meta.color + '">' + meta.label + '</p><h2>' + item.name + "</h2>"
+    + '<p class="sel-meta">' + geo
+    + "Altitudine: <strong>" + formatElev(item.elev) + "</strong> s.l.m.<br>"
+    + formatCoords(item.lat, item.lon) + "</p>"
+    + '<p class="sel-note">' + (item.note || "") + "</p>"
+    + '<p class="sel-flood flood-' + state + '">Con mare a ' + formatSea(seaLevelM) + ': <strong>' + floodLabel(item.elev) + "</strong></p>";
 }
 
 function flyTo(item) {

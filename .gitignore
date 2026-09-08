@@ -7,3 +7,4 @@ __pycache__/
 .env.local
 *.pem
 *.key
+sea-level-sim/static/textures/gebco_elev_src.png

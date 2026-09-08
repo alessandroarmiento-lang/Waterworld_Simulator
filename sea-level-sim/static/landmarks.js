@@ -2,6 +2,8 @@
  * Catalogo punti di riferimento (con quota m s.l.m.).
  * priority: 1 sempre · 2 zoom medio · 3 solo da vicino
  */
+import { WORLD_CITIES } from "./world-cities.js?v=8";
+
 export const LANDMARKS = [
   { id: "everest", name: "Everest", type: "peak", lat: 27.9881, lon: 86.925, elev: 8849, priority: 1, note: "Himalaya — vetta più alta della Terra" },
   { id: "k2", name: "K2", type: "peak", lat: 35.8808, lon: 76.5155, elev: 8611, priority: 2, note: "Karakorum" },
@@ -70,12 +72,13 @@ export const LANDMARKS = [
   { id: "manaus", name: "Manaus", type: "city", lat: -3.119, lon: -60.0217, elev: 92, priority: 1, note: "Amazzonia — vicino all’acquifero Alter do Chão" },
   { id: "quito", name: "Quito", type: "city", lat: -0.1807, lon: -78.4678, elev: 2850, priority: 3, note: "Ecuador — alta quota" },
   { id: "denver", name: "Denver", type: "city", lat: 39.7392, lon: -104.9903, elev: 1609, priority: 3, note: "USA — Rocky Mountains" },
+  ...WORLD_CITIES,
 
   { id: "alterdochao", name: "Acquifero Alter do Chão", type: "poi", lat: -2.5, lon: -55.0, elev: 50, priority: 1, note: "Grande riserva sotterranea amazzonica" },
   { id: "amazzonia", name: "Bacino amazzonico", type: "poi", lat: -3.5, lon: -62.0, elev: 80, priority: 1, note: "A +135 m diventa un mare interno" },
   { id: "tibet", name: "Altopiano del Tibet", type: "poi", lat: 31.0, lon: 88.0, elev: 4500, priority: 1, note: "Resta emerso anche negli scenari estremi" },
-  { id: "greenland", name: "Calotta groenlandese", type: "poi", lat: 72.0, lon: -40.0, elev: 2000, priority: 1, note: "Grande contributo allo scioglimento dei ghiacci" },
-  { id: "antarctica", name: "Antartide orientale", type: "poi", lat: -80.0, lon: 80.0, elev: 2500, priority: 1, note: "Maggiore riserva di ghiaccio terrestre" },
+  { id: "greenland", name: "Calotta groenlandese", type: "poi", lat: 72.0, lon: -40.0, elev: 3100, priority: 1, note: "Superficie del ghiaccio nell’interno (~3100 m); le coste sono molto più basse" },
+  { id: "antarctica", name: "Antartide orientale", type: "poi", lat: -80.0, lon: 80.0, elev: 4000, priority: 1, note: "Altopiano glaciale (~4000 m); maggiore riserva di ghiaccio terrestre" },
   { id: "padania", name: "Pianura Padana", type: "poi", lat: 45.1, lon: 10.0, elev: 30, priority: 1, note: "A +135 m: golfo marino al posto della pianura" },
   { id: "alpi", name: "Arco alpino", type: "poi", lat: 46.5, lon: 10.5, elev: 2000, priority: 2, note: "Bastione emerso nello scenario +135 m" },
   { id: "appennini", name: "Appennini", type: "poi", lat: 42.5, lon: 13.0, elev: 1500, priority: 2, note: "Dorsale italiana d’alta quota" },

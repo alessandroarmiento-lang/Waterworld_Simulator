@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Simulatore livello del mare</title>
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/style.css?v=9" />
     <script type="importmap">
       {
         "imports": {
@@ -23,7 +23,7 @@
           <h1>Livello del mare</h1>
           <p class="lede">
             Globo offline con vette, città e punti di interesse (con altitudine).
-            Alza il mare fino allo scenario estremo: restano solo le cime più alte.
+            Clicca un punto sulla mappa per quota, città e tipo di suolo.
           </p>
         </header>
         <label class="slider-block" for="sea-slider">
@@ -43,8 +43,12 @@
           <button type="button" data-level="8500">Solo ottomila (+8500 m)</button>
           <button type="button" data-level="9000">Waterworld totale (+9000 m)</button>
         </div>
+        <label class="flag-row">
+          <input id="show-globe-labels" type="checkbox" checked />
+          Etichette (nomi) sulla mappa 3D
+        </label>
         <fieldset class="filters">
-          <legend>Mostra su globo</legend>
+          <legend>Quali punti sul globo</legend>
           <label><input id="filter-peak" type="checkbox" checked /> Vette</label>
           <label><input id="filter-city" type="checkbox" checked /> Città</label>
           <label><input id="filter-poi" type="checkbox" checked /> Punti di interesse</label>
@@ -53,10 +57,10 @@
           <input id="rotate-globe" type="checkbox" checked />
           Rotazione automatica
         </label>
-        <div class="search-block">
+        <form class="search-block" id="landmark-search-form">
           <label for="landmark-search">Cerca luogo</label>
-          <input id="landmark-search" type="search" placeholder="Es. Venezia, Everest, Amazzonia…" autocomplete="off" />
-        </div>
+          <input id="landmark-search" type="search" placeholder="Es. Venezia — Invio per inquadrare" autocomplete="off" />
+        </form>
         <div id="selected-landmark" class="selected" hidden></div>
         <div id="landmark-list" class="landmark-list" aria-label="Elenco luoghi"></div>
         <p class="note">
@@ -65,6 +69,6 @@
       </aside>
       <div id="status" class="status" hidden></div>
     </div>
-    <script type="module" src="/static/app.js"></script>
+    <script type="module" src="/static/app.js?v=21"></script>
   </body>
 </html>

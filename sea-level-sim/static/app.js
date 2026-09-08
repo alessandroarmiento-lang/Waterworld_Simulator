@@ -266,7 +266,7 @@ controls.maxDistance = 16;
 controls.zoomSpeed = 1.15;
 controls.addEventListener("start", () => { autoRotate = false; rotateEl.checked = false; });
 
-scene.add(new THREE.AmbientLight(0xffffff, 1.45));
+scene.add(new THREE.AmbientLight(0xffffff, 2.1));
 // Nessun sole direzionale: le terre emerse restano chiare su tutto il globo.
 
 const starGeo = new THREE.BufferGeometry();
@@ -295,7 +295,7 @@ function loadTexture(name, colorSpace) {
 }
 
 function installFloodShader(material) {
-  material.customProgramCacheKey = () => "sea-flood-v12";
+  material.customProgramCacheKey = () => "sea-flood-v13";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     material.userData.shader = shader;
@@ -314,6 +314,8 @@ function installFloodShader(material) {
           float landM = vElevM < 2.0 ? 0.0 : vElevM;
           float h = clamp( landM / 9000.0, 0.0, 1.15 );
           transformed += normalize( objectNormal ) * ( displacementScale * h + displacementBias );
+        #else
+          vElevM = 0.0;
         #endif`
       );
     shader.fragmentShader = shader.fragmentShader
@@ -327,9 +329,6 @@ function installFloodShader(material) {
         "#include <map_fragment>",
         `#include <map_fragment>
          float elevM = vElevM;
-         #ifdef USE_DISPLACEMENTMAP
-           elevM = texture2D( displacementMap, vDisplacementMapUv ).x * 9000.0;
-         #endif
          float landMask = smoothstep( 1.5, 22.0, elevM );
          if ( uSeaLevel > 1.0 ) {
            float aa = max( fwidth( elevM ) * 1.2, 12.0 );
@@ -601,10 +600,14 @@ async function buildGlobe() {
   elevMap.magFilter = THREE.LinearFilter;
   sampleElev = makeGraySampler(elevMap);
   sampleLights = nightMap ? makeGraySampler(nightMap) : null;
-  const material = new THREE.MeshBasicMaterial({ map: colorMap });
-  material.displacementMap = elevMap;
-  material.displacementScale = DISP_SCALE;
-  material.displacementBias = DISP_BIAS;
+  // Lambert (not Basic): displacementMap is required for relief + flood shader.
+  // Ambient-only lighting keeps land evenly bright with no directional sun.
+  const material = new THREE.MeshLambertMaterial({
+    map: colorMap,
+    displacementMap: elevMap,
+    displacementScale: DISP_SCALE,
+    displacementBias: DISP_BIAS,
+  });
   installFloodShader(material);
   earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_RADIUS, 256, 256), material);
   scene.add(earth);

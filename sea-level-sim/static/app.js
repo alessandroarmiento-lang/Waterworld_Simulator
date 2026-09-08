@@ -436,7 +436,13 @@ controls.dampingFactor = 0.06;
 controls.minDistance = 2.02;
 controls.maxDistance = 16;
 controls.zoomSpeed = 1.15;
+controls.enablePan = false;
+controls.target.set(0, 0, 0);
 controls.addEventListener("start", () => { autoRotate = false; rotateEl.checked = false; });
+
+const GLOBE_CENTER = new THREE.Vector3(0, 0, 0);
+const SPIN_AXIS = new THREE.Vector3(0, 1, 0); // polo N–S attraverso il centro
+const AUTO_SPIN_RAD = 0.00035;
 
 scene.add(new THREE.AmbientLight(0xffffff, 2.1));
 // Nessun sole direzionale: le terre emerse restano chiare su tutto il globo.
@@ -846,15 +852,15 @@ function renderSelection(id) {
 }
 
 function flyTo(item) {
+  // Camera along the ray from globe center → place; pivot stays at center.
   const radius = surfaceRadius(item.elev);
   const local = latLonToVec(item.lat, item.lon, radius);
-  const worldTarget = local.clone();
-  landmarksRoot.localToWorld(worldTarget);
-  const dir = worldTarget.clone().normalize();
-  const dest = dir.clone().multiplyScalar(2.68);
+  const worldPoint = local.clone();
+  landmarksRoot.localToWorld(worldPoint);
+  const dir = worldPoint.clone().normalize();
+  const dest = dir.multiplyScalar(2.68);
   const start = camera.position.clone();
   const startTarget = controls.target.clone();
-  const endTarget = worldTarget.clone().multiplyScalar(0.22);
   let t = 0;
   autoRotate = false;
   rotateEl.checked = false;
@@ -862,7 +868,7 @@ function flyTo(item) {
     t = Math.min(1, t + 0.032);
     const ease = 1 - (1 - t) ** 3;
     camera.position.lerpVectors(start, dest, ease);
-    controls.target.lerpVectors(startTarget, endTarget, ease);
+    controls.target.lerpVectors(startTarget, GLOBE_CENTER, ease);
     controls.update();
     if (t < 1) requestAnimationFrame(step);
   }
@@ -1022,8 +1028,13 @@ window.addEventListener("resize", () => {
 });
 function animate() {
   requestAnimationFrame(animate);
-  if (earth && autoRotate) earth.rotation.y += 0.00035;
-  controls.update(); updateVisibility();
+  if (earth && autoRotate) {
+    // Rotazione solo sull’asse polare che attraversa il centro del globo.
+    earth.rotateOnAxis(SPIN_AXIS, AUTO_SPIN_RAD);
+  }
+  controls.target.copy(GLOBE_CENTER);
+  controls.update();
+  updateVisibility();
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
   hideLabelsOverPanel();

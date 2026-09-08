@@ -436,12 +436,14 @@ controls.dampingFactor = 0.06;
 controls.minDistance = 2.02;
 controls.maxDistance = 16;
 controls.zoomSpeed = 1.15;
-controls.enablePan = false;
+controls.enablePan = true;
+controls.screenSpacePanning = true;
+controls.panSpeed = 0.85;
 controls.target.set(0, 0, 0);
 controls.addEventListener("start", () => { autoRotate = false; rotateEl.checked = false; });
 
 const GLOBE_CENTER = new THREE.Vector3(0, 0, 0);
-const SPIN_AXIS = new THREE.Vector3(0, 1, 0); // polo N–S attraverso il centro
+const SPIN_AXIS = new THREE.Vector3(0, 1, 0); // polo N–S attraverso il centro del modello
 const AUTO_SPIN_RAD = 0.00035;
 
 scene.add(new THREE.AmbientLight(0xffffff, 2.1));
@@ -1029,10 +1031,9 @@ window.addEventListener("resize", () => {
 function animate() {
   requestAnimationFrame(animate);
   if (earth && autoRotate) {
-    // Rotazione solo sull’asse polare che attraversa il centro del globo.
+    // Rotazione del modello sull’asse polare (attraversa il centro della Terra).
     earth.rotateOnAxis(SPIN_AXIS, AUTO_SPIN_RAD);
   }
-  controls.target.copy(GLOBE_CENTER);
   controls.update();
   updateVisibility();
   renderer.render(scene, camera);

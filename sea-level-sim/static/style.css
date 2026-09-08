@@ -79,6 +79,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
 .landmark-label.is-flooded .elev { color: #ffb0b0; border-left-color: rgba(255,176,176,.4); }
 .landmark-label.is-risk { background: #5a3a08; outline: 2px solid #ffd27a; color: #fff3d0; }
 .landmark-label.is-selected { background: rgba(61,184,255,.28); outline-color: var(--accent); }
+.search-result-label { outline: 2px solid #38bdf8; background: rgba(14, 40, 60, 0.92); }
 @media (max-width: 720px) {
   .panel { top: auto; bottom: 0; left: 0; width: 100%; max-height: 46vh; border-radius: 1rem 1rem 0 0; }
   .landmark-list { max-height: 8rem; }

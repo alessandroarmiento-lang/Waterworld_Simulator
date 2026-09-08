@@ -3,7 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { LANDMARKS, TYPE_META } from "./landmarks.js?v=9";
 import { loadCountries, lookupCountry, oceanBasin } from "./country-lookup.js?v=1";
-import { loadCities, nearestCity } from "./cities-lookup.js?v=1";
+import { loadCities, nearestCity, searchCities } from "./cities-lookup.js?v=2";
 import { lookupMountainRange } from "./mountain-ranges.js?v=1";
 
 const canvas = document.getElementById("globe");
@@ -62,6 +62,8 @@ function pinMaterialFor(elevM) {
   return floodState(elevM) === "flooded" ? pinMaterialFlooded : pinMaterialDry;
 }
 let hoverLandmarkId = null;
+let searchMarker = null;
+const searchPinMaterial = new THREE.MeshBasicMaterial({ color: 0x38bdf8, flatShading: true });
 
 function setStatus(message, kind = "info") {
   if (!message) { statusEl.hidden = true; statusEl.textContent = ""; return; }
@@ -75,6 +77,17 @@ function formatSea(meters) {
 function heightOffset(meters) {
   const h = THREE.MathUtils.clamp(meters / REF_ELEV_M, 0, 1.15);
   return DISP_SCALE * h + DISP_BIAS;
+}
+/** Radius matching the flood/displacement vertex shader (visual terrain). */
+function visualRadiusFromElev(elevM) {
+  const landM = elevM < 2 ? 0 : elevM;
+  return EARTH_RADIUS + heightOffset(landM);
+}
+function elevMetersAt(lat, lon) {
+  return sampleElev ? sampleElev(lat, lon) * (REF_ELEV_M / 255) : 0;
+}
+function visualRadiusAt(lat, lon) {
+  return visualRadiusFromElev(elevMetersAt(lat, lon));
 }
 function oceanRadius(meters) {
   return EARTH_RADIUS + heightOffset(meters) + 0.004;
@@ -109,6 +122,86 @@ function vecToLatLon(local) {
   if (lon < -180) lon += 360;
   if (lon > 180) lon -= 360;
   return { lat, lon };
+}
+const _pickOrigin = new THREE.Vector3();
+const _pickDir = new THREE.Vector3();
+const _pickPoint = new THREE.Vector3();
+const _pickWorld = new THREE.Vector3();
+
+/** Ray–sphere: returns [tEnter, tExit] or null (local/world space, sphere at origin). */
+function raySphereTs(origin, dir, radius) {
+  const ocDot = origin.dot(dir);
+  const ocLen2 = origin.lengthSq();
+  const disc = ocDot * ocDot - (ocLen2 - radius * radius);
+  if (disc < 0) return null;
+  const s = Math.sqrt(disc);
+  return [-ocDot - s, -ocDot + s];
+}
+
+/**
+ * Pick lat/lon on the *displaced* terrain (not the base mesh).
+ * Raycasts against the geometric sphere miss mountains visually.
+ */
+function pickDisplacedLatLon() {
+  if (!earth || !sampleElev) return null;
+  earth.updateWorldMatrix(true, false);
+  _pickOrigin.copy(raycaster.ray.origin);
+  _pickDir.copy(raycaster.ray.direction).normalize();
+  earth.worldToLocal(_pickOrigin);
+  // Direction: transform a point along the ray, then subtract (handles earth rotation).
+  _pickWorld.copy(raycaster.ray.origin).addScaledVector(raycaster.ray.direction, 1);
+  earth.worldToLocal(_pickWorld);
+  _pickDir.copy(_pickWorld).sub(_pickOrigin).normalize();
+
+  const rMax = EARTH_RADIUS + DISP_SCALE * 1.15 + DISP_BIAS + 0.04;
+  const span = raySphereTs(_pickOrigin, _pickDir, rMax);
+  if (!span) return null;
+  let t0 = Math.max(0, span[0]);
+  let t1 = span[1];
+  if (t1 < 0) return null;
+  if (ocean && ocean.visible) {
+    // Cap march at ocean shell so flooded basins pick the water surface.
+    const oceanR = ocean.scale.x;
+    const oceanSpan = raySphereTs(_pickOrigin, _pickDir, oceanR);
+    if (oceanSpan && oceanSpan[1] > 0) {
+      t1 = Math.min(t1, Math.max(oceanSpan[0], oceanSpan[1]));
+    }
+  }
+
+  const steps = 96;
+  let prevD = null;
+  let prevT = t0;
+  for (let i = 0; i <= steps; i += 1) {
+    const t = t0 + (t1 - t0) * (i / steps);
+    _pickPoint.copy(_pickOrigin).addScaledVector(_pickDir, t);
+    const { lat, lon } = vecToLatLon(_pickPoint);
+    let surfR = visualRadiusAt(lat, lon);
+    if (ocean && ocean.visible) surfR = Math.max(surfR, ocean.scale.x);
+    const d = _pickPoint.length() - surfR;
+    if (prevD !== null && prevD > 0 && d <= 0) {
+      let lo = prevT;
+      let hi = t;
+      for (let k = 0; k < 14; k += 1) {
+        const mid = (lo + hi) * 0.5;
+        _pickPoint.copy(_pickOrigin).addScaledVector(_pickDir, mid);
+        const ll = vecToLatLon(_pickPoint);
+        let r = visualRadiusAt(ll.lat, ll.lon);
+        if (ocean && ocean.visible) r = Math.max(r, ocean.scale.x);
+        if (_pickPoint.length() - r > 0) lo = mid;
+        else hi = mid;
+      }
+      const tf = (lo + hi) * 0.5;
+      _pickPoint.copy(_pickOrigin).addScaledVector(_pickDir, tf);
+      return vecToLatLon(_pickPoint);
+    }
+    prevD = d;
+    prevT = t;
+  }
+
+  // Fallback: first hit of base mesh (oceans / flat).
+  const hit = raycaster.intersectObject(earth, false)[0];
+  if (!hit) return null;
+  return vecToLatLon(earth.worldToLocal(hit.point.clone()));
 }
 function haversineKm(lat1, lon1, lat2, lon2) {
   const r = 6371;
@@ -248,16 +341,22 @@ function rankedSearchMatches(query) {
     const name = foldText(item.name);
     const hay = searchHaystack(item);
     let score = 0;
-    if (name === q) score = 400;
-    else if (name.startsWith(q)) score = 300;
-    else if (hay.includes(" " + q) || name.includes(q)) score = 200;
-    else if (hay.includes(q)) score = 100;
+    if (name === q) score = 500;
+    else if (name.startsWith(q)) score = 400;
+    else if (hay.includes(" " + q) || name.includes(q)) score = 280;
+    else if (hay.includes(q)) score = 160;
     else continue;
     score -= Math.min(40, item.name.length);
-    scored.push({ item, score });
+    scored.push({ kind: "landmark", item, score, sortName: item.name });
   }
-  scored.sort((a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name, "it"));
-  return scored.map((row) => row.item);
+  const landmarkNames = new Set(scored.map((row) => foldText(row.item.name)));
+  for (const city of searchCities(query, 80)) {
+    const folded = foldText(city.name);
+    if (landmarkNames.has(folded)) continue;
+    scored.push({ kind: "city", city, score: city.score, sortName: city.name });
+  }
+  scored.sort((a, b) => b.score - a.score || a.sortName.localeCompare(b.sortName, "it"));
+  return scored;
 }
 function goToSearchMatch() {
   const matches = rankedSearchMatches(searchEl.value);
@@ -266,7 +365,55 @@ function goToSearchMatch() {
     return;
   }
   setStatus("");
-  selectLandmark(matches[0].id, true);
+  const match = matches[0];
+  if (match.kind === "landmark") selectLandmark(match.item.id, true);
+  else selectWorldCity(match.city);
+}
+function clearSearchMarker() {
+  if (!searchMarker) return;
+  landmarksRoot.remove(searchMarker.pin);
+  landmarksRoot.remove(searchMarker.label);
+  searchMarker = null;
+}
+function placeSearchMarker(city, elevM) {
+  clearSearchMarker();
+  const pin = new THREE.Mesh(pinGeometry, searchPinMaterial);
+  const el = document.createElement("button");
+  el.type = "button";
+  el.className = "landmark-label landmark-city is-selected search-result-label";
+  el.innerHTML = '<span class="dot">●</span><span class="txt">' + city.name + '</span><span class="elev">'
+    + city.pop.toLocaleString("it-IT") + " ab.</span>";
+  el.addEventListener("click", (event) => {
+    event.stopPropagation();
+    selectWorldCity(city);
+  });
+  const label = new CSS2DObject(el);
+  landmarksRoot.add(pin);
+  landmarksRoot.add(label);
+  searchMarker = { pin, label, el, city, elev: elevM };
+  updateSearchMarkerPose();
+}
+function updateSearchMarkerPose() {
+  if (!searchMarker) return;
+  const elevM = searchMarker.elev;
+  const radius = surfaceRadius(elevM);
+  const position = latLonToVec(searchMarker.city.lat, searchMarker.city.lon, radius);
+  const dir = position.clone().normalize();
+  searchMarker.pin.position.copy(position);
+  searchMarker.pin.quaternion.setFromUnitVectors(PIN_UP, dir);
+  searchMarker.pin.material = floodState(elevM) === "flooded" ? pinMaterialFlooded : searchPinMaterial;
+  searchMarker.label.position.copy(dir.clone().multiplyScalar(radius + 0.03));
+  searchMarker.pin.visible = true;
+  searchMarker.label.visible = true;
+  searchMarker.el.style.visibility = "visible";
+}
+function selectWorldCity(city) {
+  selectedId = null;
+  for (const entry of entries) entry.el.classList.toggle("is-selected", false);
+  const elevM = elevMetersAt(city.lat, city.lon);
+  placeSearchMarker(city, elevM);
+  inspectGlobe(city.lat, city.lon);
+  flyTo({ lat: city.lat, lon: city.lon, elev: elevM });
 }
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance", logarithmicDepthBuffer: true });
@@ -470,10 +617,32 @@ function pickPinUnderPointer(event) {
 
 function rebuildList() {
   listEl.innerHTML = "";
-  const q = (searchEl.value || "").trim().toLowerCase();
+  const rawQ = (searchEl.value || "").trim();
+  const q = foldText(rawQ);
+  if (q) {
+    const matches = rankedSearchMatches(rawQ).slice(0, 60);
+    for (const match of matches) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      if (match.kind === "landmark") {
+        const item = match.item;
+        const meta = TYPE_META[item.type];
+        btn.className = "landmark-item" + (item.id === selectedId ? " active" : "");
+        btn.innerHTML = '<span class="kind" style="color:' + meta.color + '">' + meta.short + '</span><span class="body"><strong>' + item.name + '</strong><small>' + meta.label + " · " + formatElev(item.elev) + ' · <em class="flood-' + floodState(item.elev) + '">' + floodLabel(item.elev) + "</em></small></span>";
+        btn.addEventListener("click", () => selectLandmark(item.id, true));
+      } else {
+        const city = match.city;
+        const elevM = elevMetersAt(city.lat, city.lon);
+        btn.className = "landmark-item";
+        btn.innerHTML = '<span class="kind" style="color:#7ec8ff">●</span><span class="body"><strong>' + city.name + '</strong><small>Città · ' + city.pop.toLocaleString("it-IT") + " ab. · " + formatElev(elevM) + ' · <em class="flood-' + floodState(elevM) + '">' + floodLabel(elevM) + "</em></small></span>";
+        btn.addEventListener("click", () => selectWorldCity(city));
+      }
+      listEl.appendChild(btn);
+    }
+    return;
+  }
   const sorted = [...LANDMARKS].sort((a, b) => a.name.localeCompare(b.name, "it"));
   for (const item of sorted) {
-    if (q && !(`${item.name} ${item.note || ""}`).toLowerCase().includes(q)) continue;
     const meta = TYPE_META[item.type];
     const btn = document.createElement("button");
     btn.type = "button";
@@ -499,6 +668,10 @@ function refreshFloodUI() {
     probeInfo = describePoint(probeInfo.lat, probeInfo.lon);
     placeProbe(probeInfo.lat, probeInfo.lon, probeInfo.elevM);
     renderProbe(probeInfo);
+  }
+  if (searchMarker) {
+    searchMarker.elev = elevMetersAt(searchMarker.city.lat, searchMarker.city.lon);
+    updateSearchMarkerPose();
   }
 }
 
@@ -587,12 +760,22 @@ function renderProbe(info) {
 function placeProbe(lat, lon, elevM) {
   if (!probeMarker) {
     probeMarker = new THREE.Mesh(
-      new THREE.RingGeometry(0.012, 0.02, 28),
-      new THREE.MeshBasicMaterial({ color: 0x5eead4, side: THREE.DoubleSide, depthTest: true })
+      new THREE.RingGeometry(0.01, 0.016, 28),
+      new THREE.MeshBasicMaterial({
+        color: 0x5eead4,
+        side: THREE.DoubleSide,
+        depthTest: true,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      })
     );
+    probeMarker.renderOrder = 3;
     landmarksRoot.add(probeMarker);
   }
-  const radius = surfaceRadius(elevM);
+  // Sit on the same displaced surface the user clicked (tiny lift only for z-fight).
+  const radius = visualRadiusFromElev(elevM) + 0.0015;
   const position = latLonToVec(lat, lon, radius);
   const dir = position.clone().normalize();
   probeMarker.position.copy(position);
@@ -603,6 +786,7 @@ function placeProbe(lat, lon, elevM) {
 function inspectGlobe(lat, lon) {
   selectedId = null;
   for (const entry of entries) entry.el.classList.toggle("is-selected", false);
+  // Keep search marker only if this inspect is for that city (handled by selectWorldCity order).
   probeInfo = describePoint(lat, lon);
   placeProbe(probeInfo.lat, probeInfo.lon, probeInfo.elevM);
   renderProbe(probeInfo);
@@ -615,22 +799,27 @@ function pickOnCanvas(event) {
   pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointerNdc, camera);
-  const pinMeshes = entries.map((entry) => entry.hit);
-  const pinHit = raycaster.intersectObjects(pinMeshes, false)[0];
+  const pinMeshes = entries.filter((e) => e.pin.visible).map((entry) => entry.hit);
+  if (searchMarker) pinMeshes.push(searchMarker.pin);
+  const pinHit = pinMeshes.length ? raycaster.intersectObjects(pinMeshes, false)[0] : null;
   if (pinHit) {
+    if (searchMarker && pinHit.object === searchMarker.pin) {
+      selectWorldCity(searchMarker.city);
+      return;
+    }
     const entry = entries.find((e) => e.hit === pinHit.object);
     if (entry) {
+      clearSearchMarker();
       if (probeMarker) probeMarker.visible = false;
       probeInfo = null;
       selectLandmark(entry.item.id, false);
       return;
     }
   }
-  const hit = raycaster.intersectObject(earth, false)[0];
-  if (!hit) return;
-  const local = earth.worldToLocal(hit.point.clone());
-  const { lat, lon } = vecToLatLon(local);
-  inspectGlobe(lat, lon);
+  clearSearchMarker();
+  const picked = pickDisplacedLatLon();
+  if (!picked) return;
+  inspectGlobe(picked.lat, picked.lon);
 }
 
 function renderSelection(id) {
@@ -681,6 +870,7 @@ function flyTo(item) {
 }
 
 function selectLandmark(id, shouldFly) {
+  clearSearchMarker();
   selectedId = id;
   probeInfo = null;
   if (probeMarker) probeMarker.visible = false;

@@ -69,7 +69,32 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
 .landmark-item .body { display: grid; gap: .15rem; }
 .landmark-item small { color: var(--muted); font-size: .75rem; }
 .note { margin: .9rem 0 0; color: var(--muted); font-size: .76rem; line-height: 1.45; }
-.status { position: absolute; right: 1rem; bottom: 1rem; max-width: 20rem; padding: .75rem 1rem; border-radius: .75rem; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: .85rem; z-index: 5; }
+.credits {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 6;
+  max-width: min(22rem, calc(100vw - 2rem));
+  padding: .65rem .85rem;
+  border: 1px solid var(--line);
+  border-radius: .75rem;
+  background: rgba(8, 18, 28, 0.92);
+  backdrop-filter: blur(10px);
+  display: grid;
+  gap: .15rem;
+  pointer-events: none;
+  font-size: .78rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.credits strong {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: .95rem;
+  font-weight: 600;
+}
+.credits-data { font-size: .72rem; opacity: .9; }
+.status { position: absolute; right: 1rem; bottom: 4.75rem; max-width: 20rem; padding: .75rem 1rem; border-radius: .75rem; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: .85rem; z-index: 5; }
 .status[data-kind="error"] { color: #ffb4b4; }
 .pin-tooltip {
   position: fixed;
@@ -106,4 +131,11 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
 @media (max-width: 720px) {
   .panel { top: auto; bottom: 0; left: 0; width: 100%; max-height: 46vh; border-radius: 1rem 1rem 0 0; }
   .landmark-list { max-height: 8rem; }
+  .credits {
+    left: 1rem;
+    right: 1rem;
+    bottom: calc(46vh + .5rem);
+    max-width: none;
+  }
+  .status { bottom: calc(46vh + 5.25rem); }
 }

@@ -70,7 +70,8 @@ const pinMaterialDry = new THREE.MeshBasicMaterial({ color: 0x22c55e, ...pinMatO
 /** Color from the elevation the pin actually sits on (DEM/ground), not only catalog. */
 function pinMaterialFor(item, groundElev) {
   const elev = groundElev != null ? groundElev : item.elev;
-  if (floodState(elev) === "flooded") return pinMaterialFlooded;
+  // Never paint "emerso" colors on a DEM cell that is actually water.
+  if (pinIsSubmerged(elev)) return pinMaterialFlooded;
   if (item.type === "peak") return pinMaterialPeak;
   if (item.type === "city") return pinMaterialCity;
   if (item.type === "poi") return pinMaterialPoi;
@@ -123,42 +124,44 @@ function surfaceRadius(elevM) {
 
 /**
  * Resolve where a landmark pin should sit.
- * Uses DEM height so the pin matches visible terrain; if the catalog point is
- * still "dry" but the exact lat/lon is already underwater, snap to nearby emerged land.
+ * Position and dry/flood color always follow DEM at the final lat/lon.
+ * Never lift an ocean coordinate with catalog elevation (that looked "emersed" mid-sea).
  */
 function resolveMarkerPose(lat, lon, catalogElev) {
   let useLat = lat;
   let useLon = lon;
-  let ground = sampleElev ? elevMetersAt(lat, lon) : catalogElev;
-  const catalogSuggestsLand = catalogElev >= Math.max(2, seaLevelM);
-  if (sampleElev && catalogSuggestsLand && ground < seaLevelM) {
-    let bestElev = ground;
+  const wetLimit = Math.max(seaLevelM, 1.5);
+  let demHere = sampleElev ? elevMetersAt(lat, lon) : catalogElev;
+  const wantsLand = catalogElev >= Math.max(seaLevelM, 2);
+
+  if (sampleElev && wantsLand && demHere < wetLimit) {
+    let bestElev = -1;
     let bestLat = lat;
     let bestLon = lon;
-    const span = 1.25;
-    const step = 0.18;
+    let bestScore = -Infinity;
+    const span = 2.2;
+    const step = 0.12;
     for (let dLat = -span; dLat <= span; dLat += step) {
       for (let dLon = -span; dLon <= span; dLon += step) {
         const e = elevMetersAt(lat + dLat, lon + dLon);
-        if (e < seaLevelM) continue;
-        if (e > bestElev) {
+        if (e < wetLimit) continue;
+        const dist2 = dLat * dLat + dLon * dLon;
+        const score = e - dist2 * 90;
+        if (score > bestScore) {
+          bestScore = score;
           bestElev = e;
           bestLat = lat + dLat;
           bestLon = lon + dLon;
         }
       }
     }
-    if (bestElev >= seaLevelM) {
+    if (bestElev >= wetLimit) {
       useLat = bestLat;
       useLon = bestLon;
-      ground = bestElev;
-    } else {
-      // No emerged DEM nearby: keep catalog height so the pin still marks the feature.
-      ground = catalogElev;
     }
-  } else if (catalogElev >= 2) {
-    ground = Math.max(ground, catalogElev * 0.92);
   }
+
+  const ground = sampleElev ? elevMetersAt(useLat, useLon) : catalogElev;
   return {
     lat: useLat,
     lon: useLon,
@@ -170,6 +173,12 @@ function resolveMarkerPose(lat, lon, catalogElev) {
 function groundMarkerRadius(lat, lon, catalogElev) {
   return resolveMarkerPose(lat, lon, catalogElev).radius;
 }
+
+/** Pin looks submerged if DEM is under current sea (or true ocean floor). */
+function pinIsSubmerged(groundElev) {
+  return groundElev < Math.max(seaLevelM, 1.5);
+}
+
 function floodState(elevM) {
   if (elevM < seaLevelM) return "flooded";
   if (elevM < seaLevelM + 50) return "risk";

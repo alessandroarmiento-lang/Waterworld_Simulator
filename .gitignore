@@ -8,3 +8,5 @@ __pycache__/
 *.pem
 *.key
 sea-level-sim/static/textures/gebco_elev_src.png
+sea-level-sim/.launcher.log
+*.iconset/

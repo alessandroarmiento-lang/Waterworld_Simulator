@@ -175,7 +175,27 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
   font: inherit;
   font-size: 1rem; /* avoid iOS zoom */
 }
-.selected { margin-top: .85rem; padding: .8rem .85rem; border: 1px solid var(--line); border-radius: .75rem; background: rgba(0,0,0,.22); }
+.selected {
+  margin-top: .85rem;
+  padding: .8rem .85rem;
+  border: 1px solid var(--line);
+  border-radius: .75rem;
+  background: rgba(0,0,0,.22);
+}
+.selection-float {
+  position: absolute;
+  top: calc(1rem + var(--safe-t));
+  right: calc(1rem + var(--safe-r));
+  z-index: 6;
+  margin: 0;
+  width: min(22rem, calc(100vw - 2rem - var(--safe-l) - var(--safe-r)));
+  max-height: min(42vh, 22rem);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  background: rgba(8, 18, 28, 0.94);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.4);
+}
 .selected h2 { margin: .15rem 0 .35rem; font-family: var(--font-display); font-size: clamp(1.05rem, 3.5vw, 1.2rem); }
 .sel-kicker { margin: 0; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
 .sel-meta, .sel-note, .sel-flood { margin: .35rem 0 0; font-size: .82rem; line-height: 1.4; color: var(--muted); }
@@ -281,6 +301,13 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
     bottom: calc(var(--mobile-panel-h) + var(--safe-b) + 2.4rem);
     max-width: none;
   }
+  .selection-float {
+    top: calc(0.65rem + var(--safe-t));
+    left: calc(0.65rem + var(--safe-l));
+    right: calc(0.65rem + var(--safe-r));
+    width: auto;
+    max-height: min(34vh, 16rem);
+  }
   .status { bottom: calc(var(--mobile-panel-h) + var(--safe-b) + 6.5rem); left: calc(0.75rem + var(--safe-l)); right: calc(0.75rem + var(--safe-r)); max-width: none; }
   body.panel-collapsed .panel {
     transform: translateY(calc(100% - 0.35rem));
@@ -324,6 +351,13 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
     right: calc(0.75rem + var(--safe-r));
     bottom: calc(0.75rem + var(--safe-b));
     max-width: min(18rem, 42vw);
+  }
+  .selection-float {
+    top: calc(0.5rem + var(--safe-t));
+    right: calc(0.5rem + var(--safe-r));
+    left: auto;
+    width: min(20rem, 44vw);
+    max-height: calc(100dvh - 5rem - var(--safe-t) - var(--safe-b));
   }
   body.panel-collapsed .panel { transform: translateX(calc(-100% - 1rem)); }
   body.panel-collapsed .panel-toggle {

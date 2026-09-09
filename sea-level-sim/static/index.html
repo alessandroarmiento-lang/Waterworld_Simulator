@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Waterworld Simulator 1.0</title>
-    <link rel="stylesheet" href="/static/style.css?v=17" />
+    <link rel="stylesheet" href="/static/style.css?v=18" />
     <script type="importmap">
       {
         "imports": {
@@ -76,12 +76,12 @@
           <label for="landmark-search">Cerca luogo</label>
           <input id="landmark-search" type="search" placeholder="Es. Legnano — Invio per inquadrare" autocomplete="off" />
         </form>
-        <div id="selected-landmark" class="selected" hidden></div>
         <div id="landmark-list" class="landmark-list" aria-label="Elenco luoghi"></div>
         <p class="note">
           Ogni luogo mostra la quota. Oltre +135 m lo scenario è narrativo / non scientifico.
         </p>
       </aside>
+      <div id="selected-landmark" class="selected selection-float" hidden></div>
       <footer class="credits" aria-label="Credits">
         <strong>Waterworld Simulator 1.0</strong>
         <span>© Alessandro Armiento · Non-commercial use only</span>
@@ -90,6 +90,6 @@
       <div id="status" class="status" hidden></div>
       <div id="pin-tooltip" class="pin-tooltip" hidden role="tooltip"></div>
     </div>
-    <script type="module" src="/static/app.js?v=40"></script>
+    <script type="module" src="/static/app.js?v=41"></script>
   </body>
 </html>

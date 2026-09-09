@@ -31,7 +31,7 @@ const EARTH_RADIUS = 2;
 const DISP_SCALE = 0.16;
 const DISP_BIAS = -DISP_SCALE * 0.12;
 const REF_ELEV_M = 9000;
-const MARKER_LIFT = 0.03;
+const MARKER_LIFT = 0.012;
 
 const filters = { peak: true, city: true, poi: true };
 let showGlobeLabels = true;
@@ -57,14 +57,22 @@ pinGeometry.translate(0, PIN_HEIGHT / 2, 0);
 pinGeometry.computeVertexNormals();
 const pinHitGeometry = new THREE.SphereGeometry(0.032, 10, 10);
 const pinHitMaterial = new THREE.MeshBasicMaterial({ visible: false });
-const pinMaterialDry = new THREE.MeshBasicMaterial({ color: 0x22c55e, flatShading: true });
-const pinMaterialFlooded = new THREE.MeshBasicMaterial({ color: 0xe11d2e, flatShading: true });
-function pinMaterialFor(elevM) {
-  return floodState(elevM) === "flooded" ? pinMaterialFlooded : pinMaterialDry;
+const pinMatOpts = { flatShading: true, fog: false, depthTest: false, depthWrite: false };
+const pinMaterialFlooded = new THREE.MeshBasicMaterial({ color: 0xe11d2e, ...pinMatOpts });
+const pinMaterialPeak = new THREE.MeshBasicMaterial({ color: 0xf0c36a, ...pinMatOpts });
+const pinMaterialCity = new THREE.MeshBasicMaterial({ color: 0x7ec8ff, ...pinMatOpts });
+const pinMaterialPoi = new THREE.MeshBasicMaterial({ color: 0x9ddea2, ...pinMatOpts });
+const pinMaterialDry = new THREE.MeshBasicMaterial({ color: 0x22c55e, ...pinMatOpts });
+function pinMaterialFor(item) {
+  if (floodState(item.elev) === "flooded") return pinMaterialFlooded;
+  if (item.type === "peak") return pinMaterialPeak;
+  if (item.type === "city") return pinMaterialCity;
+  if (item.type === "poi") return pinMaterialPoi;
+  return pinMaterialDry;
 }
 let hoverLandmarkId = null;
 let searchMarker = null;
-const searchPinMaterial = new THREE.MeshBasicMaterial({ color: 0x38bdf8, flatShading: true });
+const searchPinMaterial = new THREE.MeshBasicMaterial({ color: 0x38bdf8, ...pinMatOpts });
 
 function setStatus(message, kind = "info") {
   if (!message) { statusEl.hidden = true; statusEl.textContent = ""; return; }
@@ -103,7 +111,17 @@ function latLonToVec(lat, lon, radius) {
   );
 }
 function surfaceRadius(elevM) {
+  // Legacy helper: water-top radius (probe ring / old behavior).
   return EARTH_RADIUS + heightOffset(Math.max(elevM, seaLevelM)) + MARKER_LIFT;
+}
+/** Pin sits on displaced ground (not on the water surface when flooded). */
+function groundMarkerRadius(lat, lon, catalogElev) {
+  const dem = sampleElev ? elevMetersAt(lat, lon) : catalogElev;
+  // Prefer DEM for seating; keep catalog if DEM is ocean flat but catalog is a known peak/poi.
+  let ground = dem;
+  if (catalogElev >= 2 && dem < 2) ground = catalogElev;
+  else if (catalogElev >= 2) ground = Math.max(dem, catalogElev * 0.85);
+  return visualRadiusFromElev(ground) + MARKER_LIFT;
 }
 function floodState(elevM) {
   if (elevM < seaLevelM) return "flooded";
@@ -397,13 +415,14 @@ function placeSearchMarker(city, elevM) {
 function updateSearchMarkerPose() {
   if (!searchMarker) return;
   const elevM = searchMarker.elev;
-  const radius = surfaceRadius(elevM);
+  const radius = groundMarkerRadius(searchMarker.city.lat, searchMarker.city.lon, elevM);
   const position = latLonToVec(searchMarker.city.lat, searchMarker.city.lon, radius);
   const dir = position.clone().normalize();
   searchMarker.pin.position.copy(position);
   searchMarker.pin.quaternion.setFromUnitVectors(PIN_UP, dir);
+  searchMarker.pin.renderOrder = 4;
   searchMarker.pin.material = floodState(elevM) === "flooded" ? pinMaterialFlooded : searchPinMaterial;
-  searchMarker.label.position.copy(dir.clone().multiplyScalar(radius + 0.03));
+  searchMarker.label.position.copy(dir.clone().multiplyScalar(radius + 0.028));
   searchMarker.pin.visible = true;
   searchMarker.label.visible = true;
   searchMarker.el.style.visibility = "visible";
@@ -572,17 +591,19 @@ function setSeaUniform(meters) {
 }
 
 function placeMarker(entry) {
-  const radius = surfaceRadius(entry.item.elev);
+  const radius = groundMarkerRadius(entry.item.lat, entry.item.lon, entry.item.elev);
   const position = latLonToVec(entry.item.lat, entry.item.lon, radius);
   const dir = position.clone().normalize();
   entry.pin.position.copy(position);
   entry.pin.quaternion.setFromUnitVectors(PIN_UP, dir);
-  entry.label.position.copy(dir.multiplyScalar(radius + 0.03));
+  entry.pin.renderOrder = 4;
+  entry.label.position.copy(dir.multiplyScalar(radius + 0.028));
 }
 
 function createMarker(item) {
   const meta = TYPE_META[item.type];
-  const pin = new THREE.Mesh(pinGeometry, pinMaterialFor(item.elev));
+  const pin = new THREE.Mesh(pinGeometry, pinMaterialFor(item));
+  pin.renderOrder = 4;
   const hit = new THREE.Mesh(pinHitGeometry, pinHitMaterial);
   hit.position.y = PIN_HEIGHT * 0.55;
   pin.add(hit);
@@ -697,7 +718,7 @@ function refreshFloodUI() {
     const state = floodState(entry.item.elev);
     entry.el.classList.toggle("is-flooded", state === "flooded");
     entry.el.classList.toggle("is-risk", state === "risk");
-    entry.pin.material = pinMaterialFor(entry.item.elev);
+    entry.pin.material = pinMaterialFor(entry.item);
     entry.el.title = entry.item.name + " — " + formatElev(entry.item.elev) + " — " + floodLabel(entry.item.elev);
     placeMarker(entry);
   }

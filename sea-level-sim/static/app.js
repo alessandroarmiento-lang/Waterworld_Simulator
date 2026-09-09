@@ -168,14 +168,16 @@ function resolveMarkerPose(lat, lon, catalogElev) {
     let bestLat = lat;
     let bestLon = lon;
     let bestScore = -Infinity;
-    const span = 2.2;
-    const step = 0.12;
+    // Texel-scale nudge only: closest land wins, height just breaks ties. A wider,
+    // height-driven search used to drag coastal pins 100-300 km onto inland peaks.
+    const span = 0.35;
+    const step = 0.06;
     for (let dLat = -span; dLat <= span; dLat += step) {
       for (let dLon = -span; dLon <= span; dLon += step) {
         const e = elevMetersAt(lat + dLat, lon + dLon);
         if (e < landFloor) continue;
         const dist2 = dLat * dLat + dLon * dLon;
-        const score = e - dist2 * 90;
+        const score = -dist2 + e / 1e6;
         if (score > bestScore) {
           bestScore = score;
           bestElev = e;
@@ -588,7 +590,8 @@ resizeGlobe();
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.minDistance = 2.02;
+// Above the tallest displaced terrain (EARTH_RADIUS + DISP_SCALE + DISP_BIAS): no diving inside.
+controls.minDistance = 2.17;
 controls.maxDistance = 16;
 controls.zoomSpeed = 1.15;
 // Pan/zoom move the camera; one-finger drag tumbles the Earth about its center.
@@ -1105,6 +1108,47 @@ function selectLandmark(id, shouldFly) {
   if (shouldFly) flyTo(item);
 }
 
+/**
+ * One DEM texel spans several km, so summits read far below their recorded height
+ * (Denali 4165 m instead of 6190 m) and drown too early. Stamp catalog peaks back in,
+ * never lowering a texel, so terrain, probe and pin state agree on the same altitude.
+ */
+function stampPeaksIntoElevation(texture) {
+  const img = texture.image;
+  if (!img) return;
+  const canvasEl = document.createElement("canvas");
+  canvasEl.width = img.width;
+  canvasEl.height = img.height;
+  const ctx = canvasEl.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const frame = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
+  const { data, width, height } = frame;
+  const ringScale = [1, 0.9, 0.72]; // summit texel, then two rings of massif
+  for (const item of LANDMARKS) {
+    if (item.type !== "peak" || item.elev < 1000) continue;
+    let u = (item.lon + 180) / 360;
+    u -= Math.floor(u);
+    const v = THREE.MathUtils.clamp((90 - item.lat) / 180, 0, 1);
+    const cx = Math.floor(u * width);
+    const cy = Math.floor(v * (height - 1));
+    for (let dy = -2; dy <= 2; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
+        const gray = Math.round(((item.elev * ringScale[Math.max(Math.abs(dx), Math.abs(dy))]) / REF_ELEV_M) * 255);
+        const x = ((cx + dx) % width + width) % width;
+        const y = THREE.MathUtils.clamp(cy + dy, 0, height - 1);
+        const i = (y * width + x) * 4;
+        if (gray <= data[i]) continue;
+        data[i] = gray;
+        data[i + 1] = gray;
+        data[i + 2] = gray;
+      }
+    }
+  }
+  ctx.putImageData(frame, 0, 0);
+  texture.image = canvasEl;
+  texture.needsUpdate = true;
+}
+
 async function buildGlobe() {
   setStatus("Caricamento texture e luoghi…");
   const [colorMap, elevMap, nightMap] = await Promise.all([
@@ -1117,6 +1161,7 @@ async function buildGlobe() {
   elevMap.minFilter = THREE.LinearFilter;
   elevMap.magFilter = THREE.LinearFilter;
   elevMap.generateMipmaps = false;
+  stampPeaksIntoElevation(elevMap);
   sampleElev = makeGraySampler(elevMap);
   sampleLights = nightMap ? makeGraySampler(nightMap) : null;
   // Lambert (not Basic): displacementMap is required for relief + flood shader.

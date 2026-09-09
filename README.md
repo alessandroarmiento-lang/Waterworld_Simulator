@@ -2,7 +2,7 @@
 
 Offline sea-level globe simulator. **Public source**, **non-commercial**, with **mandatory on-screen credits**.
 
-**Mac:** double-click `Waterworld Simulator 1.0.app` in this folder (starts the server and opens the browser). Rebuild with `./deploy/build_mac_app.sh` if needed.
+**Mac:** double-click `Waterworld Simulator 1.0.app` (opens Terminal + browser). Or double-click `deploy/start_waterworld.command`. Rebuild the app with `./deploy/build_mac_app.sh` if needed.
 
 **Run / controls:** [`sea-level-sim/README.md`](sea-level-sim/README.md)
 

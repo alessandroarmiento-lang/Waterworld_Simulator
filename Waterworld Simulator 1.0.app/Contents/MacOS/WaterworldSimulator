@@ -3,9 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SIM="$ROOT/sea-level-sim"
-PYTHON="$SIM/.venv/bin/python"
+START="$ROOT/deploy/start_waterworld.command"
 URL="http://127.0.0.1:8000"
-LOG="$SIM/.launcher.log"
 
 alert() {
   /usr/bin/osascript <<OSA >/dev/null 2>&1 || true
@@ -24,7 +23,7 @@ if [[ ! -d "$SIM" ]]; then
   exit 1
 fi
 
-if [[ ! -x "$PYTHON" ]]; then
+if [[ ! -x "$SIM/.venv/bin/python" ]]; then
   alert "Manca il virtualenv. In Terminale: cd sea-level-sim && python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
   exit 1
 fi
@@ -39,22 +38,18 @@ if already_up; then
   exit 0
 fi
 
-cd "$SIM"
-nohup "$PYTHON" main.py >"$LOG" 2>&1 &
-PID=$!
+# Finder-launched apps cannot read Desktop .venv (TCC). Start via Terminal instead.
+chmod +x "$START" 2>/dev/null || true
+open "$START"
 
-for _ in $(seq 1 60); do
+for _ in $(seq 1 90); do
   if already_up; then
     open "$URL"
     notify "Avviato (http://127.0.0.1:8000)."
     exit 0
   fi
-  if ! kill -0 "$PID" 2>/dev/null; then
-    alert "Avvio fallito. Dettagli in sea-level-sim/.launcher.log"
-    exit 1
-  fi
   sleep 0.5
 done
 
-alert "Timeout in avvio. Controlla sea-level-sim/.launcher.log"
+alert "Timeout in avvio. Controlla la finestra Terminale o riprova."
 exit 1

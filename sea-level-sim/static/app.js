@@ -110,10 +110,12 @@ function elevMetersAt(lat, lon) {
 function visualRadiusAt(lat, lon) {
   return visualRadiusFromElev(elevMetersAt(lat, lon));
 }
+/**
+ * Sea sphere radius for the set waterline (meters).
+ * Same mapping as terrain displacement: land with DEM elev E emerges iff E > meters.
+ */
 function oceanRadius(meters) {
-  // Same heightOffset curve as terrain displacement — waterline = set meters.
-  // Tiny bias keeps coplanar z-fighting down without swallowing emerged land.
-  return EARTH_RADIUS + heightOffset(meters) - 0.0015;
+  return EARTH_RADIUS + heightOffset(meters);
 }
 
 /**
@@ -653,7 +655,7 @@ function loadTexture(name, colorSpace) {
 }
 
 function installFloodShader(material) {
-  material.customProgramCacheKey = () => "sea-flood-v16";
+  material.customProgramCacheKey = () => "sea-flood-v17";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     material.userData.shader = shader;
@@ -662,22 +664,18 @@ function installFloodShader(material) {
         "#include <common>",
         `#include <common>
          uniform float uSeaLevel;
-         varying float vElevM;
-         varying vec2 vElevUv;`
+         varying float vElevM;`
       )
       .replace(
         "#include <displacementmap_vertex>",
         `#ifdef USE_DISPLACEMENTMAP
-          vElevUv = vDisplacementMapUv;
-          // Exact texel (no neighborhood max): valleys must flood when below uSeaLevel.
-          float e = texture2D( displacementMap, vDisplacementMapUv ).x;
-          vElevM = e * 9000.0;
+          vElevM = texture2D( displacementMap, vDisplacementMapUv ).x * 9000.0;
+          // Oceano piatto; terra (anche sommersa) tiene il rilievo così restano i contorni.
           float landM = vElevM < 2.0 ? 0.0 : vElevM;
           float h = clamp( landM / 9000.0, 0.0, 1.15 );
           transformed += normalize( objectNormal ) * ( displacementScale * h + displacementBias );
         #else
           vElevM = 0.0;
-          vElevUv = vec2( 0.0 );
         #endif`
       );
     shader.fragmentShader = shader.fragmentShader
@@ -685,14 +683,12 @@ function installFloodShader(material) {
         "#include <common>",
         `#include <common>
          uniform float uSeaLevel;
-         varying float vElevM;
-         varying vec2 vElevUv;`
+         varying float vElevM;`
       )
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
-         // Re-sample DEM in the fragment so flood lines follow the texture, not coarse verts.
-         float elevM = texture2D( displacementMap, vElevUv ).x * 9000.0;
+         float elevM = vElevM;
          float landMask = smoothstep( 1.5, 22.0, elevM );
          if ( uSeaLevel > 1.0 ) {
            float aa = max( fwidth( elevM ) * 1.2, 12.0 );
@@ -719,50 +715,9 @@ function installFloodShader(material) {
   };
 }
 
-function installOceanShader(material, elevTexture) {
-  material.customProgramCacheKey = () => "ocean-elev-mask-v2";
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uSeaLevel = { value: seaLevelM };
-    shader.uniforms.uElevMap = { value: elevTexture };
-    material.userData.shader = shader;
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        "#include <common>",
-        `#include <common>
-         varying vec2 vOceanUv;`
-      )
-      .replace(
-        "#include <uv_vertex>",
-        `#include <uv_vertex>
-         vOceanUv = uv;`
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        "#include <common>",
-        `#include <common>
-         uniform float uSeaLevel;
-         uniform sampler2D uElevMap;
-         varying vec2 vOceanUv;`
-      )
-      .replace(
-        "#include <color_fragment>",
-        `#include <color_fragment>
-         float elevM = texture2D( uElevMap, vOceanUv ).x * 9000.0;
-         // Hide water where DEM is at/above the slider — shoreline tracks altitude.
-         float under = smoothstep( uSeaLevel + 30.0, uSeaLevel - 90.0, elevM );
-         if ( under < 0.02 ) discard;
-         diffuseColor.a *= under;`
-      );
-  };
-  material.transparent = true;
-  material.needsUpdate = true;
-}
-
 function setSeaUniform(meters) {
-  const landShader = earth && earth.material.userData.shader;
-  if (landShader) landShader.uniforms.uSeaLevel.value = meters;
-  const oceanShader = ocean && ocean.material.userData.shader;
-  if (oceanShader) oceanShader.uniforms.uSeaLevel.value = meters;
+  const shader = earth && earth.material.userData.shader;
+  if (shader) shader.uniforms.uSeaLevel.value = meters;
 }
 
 function placeMarker(entry) {
@@ -1178,20 +1133,23 @@ async function buildGlobe() {
     displacementBias: DISP_BIAS,
   });
   installFloodShader(material);
-  // 512 segs ≈ 0.7° — with peak stamps, summits clear the waterline.
   earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_RADIUS, 512, 512), material);
   scene.add(earth);
   earth.add(landmarksRoot);
-  const oceanMat = new THREE.MeshBasicMaterial({
-    color: 0x0c4a7a,
-    transparent: true,
-    opacity: 0.42,
-    depthWrite: false,
-    depthTest: true,
-  });
-  installOceanShader(oceanMat, elevMap);
-  ocean = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 256), oceanMat);
-  ocean.renderOrder = 1;
+  ocean = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 192, 192),
+    new THREE.MeshBasicMaterial({
+      color: 0x0c4a7a,
+      transparent: true,
+      opacity: 0.36,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    })
+  );
+  // Draw under textured land; scale = oceanRadius(seaLevelM) only.
+  ocean.renderOrder = -1;
   ocean.visible = false;
   ocean.scale.setScalar(oceanRadius(0));
   earth.add(ocean);

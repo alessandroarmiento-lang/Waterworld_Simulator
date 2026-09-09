@@ -67,10 +67,10 @@ const pinMaterialPeak = new THREE.MeshBasicMaterial({ color: 0xf0c36a, ...pinMat
 const pinMaterialCity = new THREE.MeshBasicMaterial({ color: 0x7ec8ff, ...pinMatOpts });
 const pinMaterialPoi = new THREE.MeshBasicMaterial({ color: 0x9ddea2, ...pinMatOpts });
 const pinMaterialDry = new THREE.MeshBasicMaterial({ color: 0x22c55e, ...pinMatOpts });
-/** Flood if catalog OR DEM is under sea (catalog catches inland floods; DEM catches mid-ocean). */
+/** Catalog altitude decides flooding (same number the panel shows); DEM only for ocean cells. */
 function pinFloodElev(item, groundElev) {
-  const dem = groundElev != null ? groundElev : item.elev;
-  return Math.min(item.elev, dem);
+  if (item.elev >= 2) return item.elev;
+  return groundElev != null ? groundElev : item.elev;
 }
 
 /** Color from flood elev; type color only when both catalog and DEM are dry. */
@@ -118,55 +118,6 @@ function oceanRadius(meters) {
   return EARTH_RADIUS + heightOffset(meters);
 }
 
-/**
- * GEBCO→4k bilinear flattens sharp summits. Stamp catalog peaks only —
- * do not dilate high DEM (that flooded valleys like Guadalajara with nearby ridges).
- */
-function enrichElevationTexture(texture) {
-  const img = texture.image;
-  if (!img || !img.width) return texture;
-  const w = img.width;
-  const h = img.height;
-  const canvasEl = document.createElement("canvas");
-  canvasEl.width = w;
-  canvasEl.height = h;
-  const ctx = canvasEl.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0);
-  const imageData = ctx.getImageData(0, 0, w, h);
-  const dst = imageData.data;
-
-  function stampElev(lat, lon, meters, radiusPx) {
-    const gray = Math.round(THREE.MathUtils.clamp(meters / REF_ELEV_M, 0, 1) * 255);
-    let u = (lon + 180) / 360;
-    u -= Math.floor(u);
-    const v = THREE.MathUtils.clamp((90 - lat) / 180, 0, 1);
-    const cx = Math.floor(u * w);
-    const cy = Math.floor(v * (h - 1));
-    for (let dy = -radiusPx; dy <= radiusPx; dy++) {
-      for (let dx = -radiusPx; dx <= radiusPx; dx++) {
-        const dist2 = dx * dx + dy * dy;
-        if (dist2 > radiusPx * radiusPx) continue;
-        const x = (cx + dx + w) % w;
-        const y = THREE.MathUtils.clamp(cy + dy, 0, h - 1);
-        const i = (y * w + x) * 4;
-        const fall = 1 - Math.sqrt(dist2) / (radiusPx + 0.01);
-        const g = Math.round(gray * (0.55 + 0.45 * fall));
-        if (g > dst[i]) dst[i] = dst[i + 1] = dst[i + 2] = g;
-      }
-    }
-  }
-
-  for (const item of LANDMARKS) {
-    if (item.type !== "peak" || item.elev < 2500) continue;
-    const rPx = Math.min(10, Math.max(5, Math.round(item.elev / 1000)));
-    stampElev(item.lat, item.lon, item.elev, rPx);
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-  texture.image = canvasEl;
-  texture.needsUpdate = true;
-  return texture;
-}
 function latLonToVec(lat, lon, radius) {
   const phi = THREE.MathUtils.degToRad(90 - lat);
   const theta = THREE.MathUtils.degToRad(lon + 180);
@@ -654,10 +605,12 @@ function loadTexture(name, colorSpace) {
   });
 }
 
-function installFloodShader(material) {
-  material.customProgramCacheKey = () => "sea-flood-v18";
+function installFloodShader(material, elevTexture) {
+  material.customProgramCacheKey = () => "sea-flood-v19";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
+    // Own sampler: three exposes displacementMap to the vertex stage only.
+    shader.uniforms.uElevMap = { value: elevTexture };
     material.userData.shader = shader;
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -686,6 +639,7 @@ function installFloodShader(material) {
         "#include <common>",
         `#include <common>
          uniform float uSeaLevel;
+         uniform sampler2D uElevMap;
          varying float vElevM;
          varying vec2 vElevUv;`
       )
@@ -693,7 +647,7 @@ function installFloodShader(material) {
         "#include <map_fragment>",
         `#include <map_fragment>
          // DEM texel (not coarse vertex lerp) so valleys match the altitude slider.
-         float elevM = texture2D( displacementMap, vElevUv ).x * 9000.0;
+         float elevM = texture2D( uElevMap, vElevUv ).x * 9000.0;
          float landMask = smoothstep( 1.5, 22.0, elevM );
          if ( uSeaLevel > 1.0 ) {
            float aa = max( fwidth( elevM ) * 1.2, 12.0 );
@@ -1126,7 +1080,6 @@ async function buildGlobe() {
   elevMap.minFilter = THREE.LinearFilter;
   elevMap.magFilter = THREE.LinearFilter;
   elevMap.generateMipmaps = false;
-  enrichElevationTexture(elevMap);
   sampleElev = makeGraySampler(elevMap);
   sampleLights = nightMap ? makeGraySampler(nightMap) : null;
   // Lambert (not Basic): displacementMap is required for relief + flood shader.
@@ -1137,23 +1090,24 @@ async function buildGlobe() {
     displacementScale: DISP_SCALE,
     displacementBias: DISP_BIAS,
   });
-  installFloodShader(material);
+  installFloodShader(material, elevMap);
   earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_RADIUS, 512, 512), material);
   scene.add(earth);
   earth.add(landmarksRoot);
   ocean = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 256, 256),
+    new THREE.SphereGeometry(1, 192, 192),
     new THREE.MeshBasicMaterial({
       color: 0x0c4a7a,
       transparent: true,
-      opacity: 0.42,
-      depthTest: true,
+      opacity: 0.38,
       depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     })
   );
-  // After earth: depth test keeps water only where the sea sphere is in front of terrain
-  // (DEM below slider). Peaks closer than the sea sphere stay dry and textured.
-  ocean.renderOrder = 2;
+  // Open water / limb only: submerged land is tinted by the flood shader itself.
+  ocean.renderOrder = -1;
   ocean.visible = false;
   ocean.scale.setScalar(oceanRadius(0));
   earth.add(ocean);

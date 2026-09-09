@@ -36,8 +36,12 @@ const PIN_HEIGHT = 0.018;
 const pinGeometry = new THREE.CylinderGeometry(0.0065, 0.0035, PIN_HEIGHT, 3);
 pinGeometry.translate(0, PIN_HEIGHT / 2, 0);
 pinGeometry.computeVertexNormals();
-const pinHitGeometry = new THREE.SphereGeometry(0.036, 10, 10);
+const pinHitGeometry = new THREE.SphereGeometry(0.012, 8, 8);
 const pinHitMaterial = new THREE.MeshBasicMaterial({ visible: false });
+const PIN_HOVER_PX = 26;
+const PIN_CLICK_PX = 11;
+const _pinWorld = new THREE.Vector3();
+const _pinNdc = new THREE.Vector3();
 const pinMatOpts = { flatShading: true, fog: false, depthTest: false, depthWrite: false };
 const pinMaterialFlooded = new THREE.MeshBasicMaterial({ color: 0xe11d2e, ...pinMatOpts });
 const pinMaterialPeak = new THREE.MeshBasicMaterial({ color: 0xf0c36a, ...pinMatOpts });
@@ -689,16 +693,53 @@ function hidePinTooltip(id) {
   canvas.style.cursor = "crosshair";
 }
 
-function pickPinUnderPointer(event) {
-  if (!earth || !entries.length) return null;
+function projectPinToClient(entry) {
+  if (!entry?.pin?.visible) return null;
+  entry.pin.getWorldPosition(_pinWorld);
+  _pinNdc.copy(_pinWorld).project(camera);
+  if (_pinNdc.z > 1) return null;
   const rect = canvas.getBoundingClientRect();
-  pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-  pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-  raycaster.setFromCamera(pointerNdc, camera);
-  const hits = entries.filter((e) => e.pin.visible).map((e) => e.hit);
-  const hit = raycaster.intersectObjects(hits, false)[0];
-  if (!hit) return null;
-  return entries.find((e) => e.hit === hit.object) || null;
+  return {
+    x: (_pinNdc.x * 0.5 + 0.5) * rect.width + rect.left,
+    y: (-_pinNdc.y * 0.5 + 0.5) * rect.height + rect.top,
+  };
+}
+
+function nearestPinByScreen(clientX, clientY, maxPx) {
+  let best = null;
+  let bestD = maxPx * maxPx;
+  for (const entry of entries) {
+    const s = projectPinToClient(entry);
+    if (!s) continue;
+    const dx = clientX - s.x;
+    const dy = clientY - s.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 <= bestD) {
+      bestD = d2;
+      best = entry;
+    }
+  }
+  if (searchMarker?.pin?.visible) {
+    searchMarker.pin.getWorldPosition(_pinWorld);
+    _pinNdc.copy(_pinWorld).project(camera);
+    if (_pinNdc.z <= 1) {
+      const rect = canvas.getBoundingClientRect();
+      const sx = (_pinNdc.x * 0.5 + 0.5) * rect.width + rect.left;
+      const sy = (-_pinNdc.y * 0.5 + 0.5) * rect.height + rect.top;
+      const dx = clientX - sx;
+      const dy = clientY - sy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= bestD) best = { search: true, city: searchMarker.city };
+    }
+  }
+  return best;
+}
+
+function pickPinUnderPointer(event) {
+  if (!earth) return null;
+  const hit = nearestPinByScreen(event.clientX, event.clientY, PIN_HOVER_PX);
+  if (!hit || hit.search) return null;
+  return hit;
 }
 
 function rebuildList() {
@@ -881,28 +922,24 @@ function inspectGlobe(lat, lon) {
 
 function pickOnCanvas(event) {
   if (!earth) return;
+  // Strict screen radius: near-pin tooltip must not steal map clicks.
+  const pinPick = nearestPinByScreen(event.clientX, event.clientY, PIN_CLICK_PX);
+  if (pinPick) {
+    if (pinPick.search) {
+      selectWorldCity(pinPick.city);
+      return;
+    }
+    clearSearchMarker();
+    if (probeMarker) probeMarker.visible = false;
+    probeInfo = null;
+    selectLandmark(pinPick.item.id, false);
+    return;
+  }
+  clearSearchMarker();
   const rect = canvas.getBoundingClientRect();
   pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointerNdc, camera);
-  const pinMeshes = entries.filter((e) => e.pin.visible).map((entry) => entry.hit);
-  if (searchMarker) pinMeshes.push(searchMarker.pin);
-  const pinHit = pinMeshes.length ? raycaster.intersectObjects(pinMeshes, false)[0] : null;
-  if (pinHit) {
-    if (searchMarker && pinHit.object === searchMarker.pin) {
-      selectWorldCity(searchMarker.city);
-      return;
-    }
-    const entry = entries.find((e) => e.hit === pinHit.object);
-    if (entry) {
-      clearSearchMarker();
-      if (probeMarker) probeMarker.visible = false;
-      probeInfo = null;
-      selectLandmark(entry.item.id, false);
-      return;
-    }
-  }
-  clearSearchMarker();
   const picked = pickDisplacedLatLon();
   if (!picked) return;
   inspectGlobe(picked.lat, picked.lon);

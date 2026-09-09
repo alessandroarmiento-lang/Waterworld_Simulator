@@ -439,8 +439,7 @@ controls.dampingFactor = 0.06;
 controls.minDistance = 2.02;
 controls.maxDistance = 16;
 controls.zoomSpeed = 1.15;
-// Pan/zoom move the camera; spinning the globe is done on the Earth mesh
-// around the polar axis through the center (not OrbitControls rotate).
+// Pan/zoom move the camera; one-finger drag tumbles the Earth about its center.
 controls.enableRotate = false;
 controls.enablePan = true;
 controls.screenSpacePanning = true;
@@ -449,9 +448,11 @@ controls.target.set(0, 0, 0);
 controls.addEventListener("start", () => { autoRotate = false; rotateEl.checked = false; });
 
 const GLOBE_CENTER = new THREE.Vector3(0, 0, 0);
-const SPIN_AXIS = new THREE.Vector3(0, 1, 0); // poli N–S, attraverso il centro
+const AUTO_SPIN_AXIS = new THREE.Vector3(0, 1, 0); // through sphere center
 const AUTO_SPIN_RAD = 0.00035;
 const DRAG_SPIN_SENS = 0.005;
+const _dragAxisRight = new THREE.Vector3();
+const _dragAxisUp = new THREE.Vector3();
 const activePointers = new Map();
 let globeDrag = null;
 
@@ -1032,10 +1033,13 @@ searchFormEl.addEventListener("submit", (event) => {
 });
 rotateEl.addEventListener("change", () => { autoRotate = rotateEl.checked; });
 
-function spinEarthByPointerDelta(dx, _dy) {
+function spinEarthByPointerDelta(dx, dy) {
   if (!earth) return;
-  // Solo asse terrestre (poli N–S attraverso il centro): non tippare i poli.
-  earth.rotateOnAxis(SPIN_AXIS, dx * DRAG_SPIN_SENS);
+  // Trackball about the sphere center (any axis through origin), not polar-only.
+  _dragAxisRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+  _dragAxisUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
+  earth.rotateOnWorldAxis(_dragAxisUp, dx * DRAG_SPIN_SENS);
+  earth.rotateOnWorldAxis(_dragAxisRight, dy * DRAG_SPIN_SENS);
   autoRotate = false;
   rotateEl.checked = false;
 }
@@ -1110,8 +1114,8 @@ window.addEventListener("resize", () => {
 function animate() {
   requestAnimationFrame(animate);
   if (earth && autoRotate) {
-    // Sempre sull’asse polare attraverso il centro del modello.
-    earth.rotateOnAxis(SPIN_AXIS, AUTO_SPIN_RAD);
+    // Idle spin about vertical through the sphere center.
+    earth.rotateOnWorldAxis(AUTO_SPIN_AXIS, AUTO_SPIN_RAD);
   }
   controls.update();
   updateVisibility();

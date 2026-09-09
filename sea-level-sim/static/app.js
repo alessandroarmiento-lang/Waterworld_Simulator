@@ -655,7 +655,7 @@ function loadTexture(name, colorSpace) {
 }
 
 function installFloodShader(material) {
-  material.customProgramCacheKey = () => "sea-flood-v17";
+  material.customProgramCacheKey = () => "sea-flood-v18";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     material.userData.shader = shader;
@@ -664,11 +664,13 @@ function installFloodShader(material) {
         "#include <common>",
         `#include <common>
          uniform float uSeaLevel;
-         varying float vElevM;`
+         varying float vElevM;
+         varying vec2 vElevUv;`
       )
       .replace(
         "#include <displacementmap_vertex>",
         `#ifdef USE_DISPLACEMENTMAP
+          vElevUv = vDisplacementMapUv;
           vElevM = texture2D( displacementMap, vDisplacementMapUv ).x * 9000.0;
           // Oceano piatto; terra (anche sommersa) tiene il rilievo così restano i contorni.
           float landM = vElevM < 2.0 ? 0.0 : vElevM;
@@ -676,6 +678,7 @@ function installFloodShader(material) {
           transformed += normalize( objectNormal ) * ( displacementScale * h + displacementBias );
         #else
           vElevM = 0.0;
+          vElevUv = vec2( 0.0 );
         #endif`
       );
     shader.fragmentShader = shader.fragmentShader
@@ -683,12 +686,14 @@ function installFloodShader(material) {
         "#include <common>",
         `#include <common>
          uniform float uSeaLevel;
-         varying float vElevM;`
+         varying float vElevM;
+         varying vec2 vElevUv;`
       )
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
-         float elevM = vElevM;
+         // DEM texel (not coarse vertex lerp) so valleys match the altitude slider.
+         float elevM = texture2D( displacementMap, vElevUv ).x * 9000.0;
          float landMask = smoothstep( 1.5, 22.0, elevM );
          if ( uSeaLevel > 1.0 ) {
            float aa = max( fwidth( elevM ) * 1.2, 12.0 );
@@ -1137,19 +1142,18 @@ async function buildGlobe() {
   scene.add(earth);
   earth.add(landmarksRoot);
   ocean = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 192, 192),
+    new THREE.SphereGeometry(1, 256, 256),
     new THREE.MeshBasicMaterial({
       color: 0x0c4a7a,
       transparent: true,
-      opacity: 0.36,
+      opacity: 0.42,
+      depthTest: true,
       depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
     })
   );
-  // Draw under textured land; scale = oceanRadius(seaLevelM) only.
-  ocean.renderOrder = -1;
+  // After earth: depth test keeps water only where the sea sphere is in front of terrain
+  // (DEM below slider). Peaks closer than the sea sphere stay dry and textured.
+  ocean.renderOrder = 2;
   ocean.visible = false;
   ocean.scale.setScalar(oceanRadius(0));
   earth.add(ocean);

@@ -1,12 +1,12 @@
 # Credits (required)
 
 These credits must stay **permanently visible** in the primary UI of any copy,
-fork, or derivative of Waterworld Simulator (see `LICENSE`).
+fork, or derivative of Waterworld Simulator 1.0 (see `LICENSE`).
 
 ## Required on-screen text
 
 ```
-Waterworld Simulator
+Waterworld Simulator 1.0
 © Alessandro Armiento · Non-commercial use only
 ```
 
@@ -18,7 +18,7 @@ Data: GEBCO / NASA · GeoNames · three.js
 
 ## Author
 
-- **Alessandro Armiento** — creator of Waterworld Simulator
+- **Alessandro Armiento** — creator of Waterworld Simulator 1.0
 - Repository: https://github.com/alessandroarmiento-lang/Waterworld_Simulator
 
 ## Third-party (attribution, own licenses)

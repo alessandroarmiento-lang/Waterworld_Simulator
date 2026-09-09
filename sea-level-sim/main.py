@@ -70,7 +70,7 @@ def ensure_assets() -> None:
 
 
 ensure_assets()
-app = FastAPI(title="Waterworld Simulator")
+app = FastAPI(title="Waterworld Simulator 1.0")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
@@ -80,7 +80,7 @@ def index() -> FileResponse:
 
 
 def main() -> None:
-    print("\n  Waterworld Simulator (offline)")
+    print("\n  Waterworld Simulator 1.0 (offline)")
     print("  Apri: http://127.0.0.1:8000\n")
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
 

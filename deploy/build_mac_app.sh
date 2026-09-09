@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build "Waterworld Simulator.app" in the project root (double-click launcher).
+# Build "Waterworld Simulator 1.0.app" in the project root (double-click launcher).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP="$ROOT/Waterworld Simulator.app"
+APP="$ROOT/Waterworld Simulator 1.0.app"
 ICON_PNG="${1:-$ROOT/deploy/assets/waterworld-app-icon.png}"
 ICON_ICNS="$ROOT/deploy/assets/AppIcon.icns"
 TMP="$(mktemp -d)"
@@ -20,7 +20,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleDisplayName</key>
-  <string>Waterworld Simulator</string>
+  <string>Waterworld Simulator 1.0</string>
   <key>CFBundleExecutable</key>
   <string>WaterworldSimulator</string>
   <key>CFBundleIconFile</key>
@@ -30,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Waterworld Simulator</string>
+  <string>Waterworld Simulator 1.0</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -57,13 +57,13 @@ LOG="$SIM/.launcher.log"
 
 alert() {
   /usr/bin/osascript <<OSA >/dev/null 2>&1 || true
-display alert "Waterworld Simulator" message "$1" as critical
+display alert "Waterworld Simulator 1.0" message "$1" as critical
 OSA
 }
 
 notify() {
   /usr/bin/osascript <<OSA >/dev/null 2>&1 || true
-display notification "$1" with title "Waterworld Simulator"
+display notification "$1" with title "Waterworld Simulator 1.0"
 OSA
 }
 

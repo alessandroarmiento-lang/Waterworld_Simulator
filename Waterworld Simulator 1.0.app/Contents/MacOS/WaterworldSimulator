@@ -9,13 +9,13 @@ LOG="$SIM/.launcher.log"
 
 alert() {
   /usr/bin/osascript <<OSA >/dev/null 2>&1 || true
-display alert "Waterworld Simulator" message "$1" as critical
+display alert "Waterworld Simulator 1.0" message "$1" as critical
 OSA
 }
 
 notify() {
   /usr/bin/osascript <<OSA >/dev/null 2>&1 || true
-display notification "$1" with title "Waterworld Simulator"
+display notification "$1" with title "Waterworld Simulator 1.0"
 OSA
 }
 

@@ -1,4 +1,4 @@
-# Waterworld Simulator — costs & hours
+# Waterworld Simulator 1.0 — costs & hours
 
 ## Running totals
 

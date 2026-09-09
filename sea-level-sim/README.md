@@ -1,4 +1,4 @@
-# Simulatore livello del mare (offline)
+# Waterworld Simulator 1.0 (offline)
 
 ## Avvio
 

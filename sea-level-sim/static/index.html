@@ -2,9 +2,9 @@
 <html lang="it">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Waterworld Simulator 1.0</title>
-    <link rel="stylesheet" href="/static/style.css?v=16" />
+    <link rel="stylesheet" href="/static/style.css?v=17" />
     <script type="importmap">
       {
         "imports": {
@@ -17,7 +17,8 @@
   <body>
     <div id="app">
       <canvas id="globe"></canvas>
-      <aside class="panel" aria-label="Controlli Waterworld Simulator 1.0">
+      <button type="button" class="panel-toggle" id="panel-toggle" aria-controls="control-panel" aria-expanded="true">Nascondi controlli</button>
+      <aside id="control-panel" class="panel" aria-label="Controlli Waterworld Simulator 1.0">
         <header>
           <p class="eyebrow">Versione 1.0</p>
           <h1>Waterworld Simulator 1.0</h1>
@@ -63,10 +64,11 @@
         <div class="gestures" aria-label="Gesture">
           <p class="gestures-title">Gesture</p>
           <ul>
-            <li><span>1 dito</span> ruota la sfera (in ogni direzione)</li>
+            <li><span>1 dito</span> ruota la sfera (trackball)</li>
             <li><span>2 dita trascina</span> sposta (pan)</li>
             <li><span>2 dita pinch</span> zoom</li>
-            <li><span>2 dita torsione</span> orario / antiorario</li>
+            <li><span>2 dita torsione</span> orario / antiorario (piano)</li>
+            <li><span>Shift + trascina</span> stesso roll (trackpad / mouse)</li>
             <li><span>Clic</span> quota, città, terreno</li>
           </ul>
         </div>
@@ -88,6 +90,6 @@
       <div id="status" class="status" hidden></div>
       <div id="pin-tooltip" class="pin-tooltip" hidden role="tooltip"></div>
     </div>
-    <script type="module" src="/static/app.js?v=38"></script>
+    <script type="module" src="/static/app.js?v=39"></script>
   </body>
 </html>

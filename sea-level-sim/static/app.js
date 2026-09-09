@@ -24,6 +24,7 @@ const searchFormEl = document.getElementById("landmark-search-form");
 const selectedEl = document.getElementById("selected-landmark");
 const rotateEl = document.getElementById("rotate-globe");
 const panelEl = document.querySelector(".panel");
+const panelToggleEl = document.getElementById("panel-toggle");
 const pinTooltipEl = document.getElementById("pin-tooltip");
 
 const EARTH_RADIUS = 2;
@@ -421,18 +422,34 @@ function selectWorldCity(city) {
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance", logarithmicDepthBuffer: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const labelRenderer = new CSS2DRenderer();
-labelRenderer.setSize(window.innerWidth, window.innerHeight);
 labelRenderer.domElement.className = "label-layer";
 appRoot.appendChild(labelRenderer.domElement);
 
+function viewportSize() {
+  const vv = window.visualViewport;
+  const w = Math.max(1, Math.round(appRoot.clientWidth || vv?.width || window.innerWidth));
+  const h = Math.max(1, Math.round(appRoot.clientHeight || vv?.height || window.innerHeight));
+  return { w, h };
+}
+
+function resizeGlobe() {
+  const { w, h } = viewportSize();
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+  labelRenderer.setSize(w, h);
+  canvas.style.width = "100%";
+  canvas.style.height = "100%";
+}
+
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x061018, 0.035);
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.008, 100);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.008, 100);
 camera.position.set(0.6, 1.1, 5.2);
+resizeGlobe();
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
@@ -454,10 +471,12 @@ const DRAG_SPIN_SENS = 0.005;
 const _dragAxisRight = new THREE.Vector3();
 const _dragAxisUp = new THREE.Vector3();
 const _dragAxisLook = new THREE.Vector3();
+const _rollQuat = new THREE.Quaternion();
 const activePointers = new Map();
 let globeDrag = null;
 /** @type {{ angle: number } | null} */
-let twoFingerTwist = null;
+let twistSample = null;
+let gestureRotationDeg = 0;
 
 scene.add(new THREE.AmbientLight(0xffffff, 2.1));
 // Nessun sole direzionale: le terre emerse restano chiare su tutto il globo.
@@ -1036,9 +1055,14 @@ searchFormEl.addEventListener("submit", (event) => {
 });
 rotateEl.addEventListener("change", () => { autoRotate = rotateEl.checked; });
 
-function spinEarthByPointerDelta(dx, dy) {
+function spinEarthByPointerDelta(dx, dy, event) {
   if (!earth) return;
-  // Trackball about the sphere center (any axis through origin), not polar-only.
+  // Shift+drag: flat CW/CCW roll (works on trackpad/mouse where OS twist is unavailable).
+  if (event?.shiftKey) {
+    rollEarthFlat(-dx * DRAG_SPIN_SENS);
+    return;
+  }
+  // Trackball about the sphere center (any axis through origin).
   _dragAxisRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
   _dragAxisUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
   earth.rotateOnWorldAxis(_dragAxisUp, dx * DRAG_SPIN_SENS);
@@ -1047,46 +1071,55 @@ function spinEarthByPointerDelta(dx, dy) {
   rotateEl.checked = false;
 }
 
-function twoFingerAngle() {
-  if (activePointers.size !== 2) return null;
-  const pts = [...activePointers.values()];
-  return Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
-}
-
-function angleFromTouches(touches) {
-  if (!touches || touches.length < 2) return null;
-  return Math.atan2(
-    touches[1].clientY - touches[0].clientY,
-    touches[1].clientX - touches[0].clientX
-  );
+function pairAngle(x0, y0, x1, y1) {
+  return Math.atan2(y1 - y0, x1 - x0);
 }
 
 /** Flat roll about the view axis through the sphere center (CW / CCW). */
 function rollEarthFlat(deltaAngle) {
-  if (!earth || !Number.isFinite(deltaAngle) || Math.abs(deltaAngle) < 1e-6) return;
+  if (!earth || !Number.isFinite(deltaAngle) || Math.abs(deltaAngle) < 1e-8) return;
   camera.getWorldDirection(_dragAxisLook);
-  // Screen-plane twist: fingers clockwise → map turns clockwise.
-  earth.rotateOnWorldAxis(_dragAxisLook, -deltaAngle);
+  _rollQuat.setFromAxisAngle(_dragAxisLook, -deltaAngle);
+  earth.quaternion.premultiply(_rollQuat);
+  earth.updateMatrixWorld(true);
   autoRotate = false;
   rotateEl.checked = false;
 }
 
-function applyTwistFromAngle(angle) {
-  if (angle == null) {
-    twoFingerTwist = null;
+function feedTwistAngle(angle, reset) {
+  if (angle == null || !Number.isFinite(angle)) {
+    twistSample = null;
     return;
   }
-  if (twoFingerTwist) {
-    let dAng = angle - twoFingerTwist.angle;
-    if (dAng > Math.PI) dAng -= Math.PI * 2;
-    if (dAng < -Math.PI) dAng += Math.PI * 2;
-    rollEarthFlat(dAng);
+  if (reset || !twistSample) {
+    twistSample = { angle };
+    return;
   }
-  twoFingerTwist = { angle };
+  let dAng = angle - twistSample.angle;
+  if (dAng > Math.PI) dAng -= Math.PI * 2;
+  if (dAng < -Math.PI) dAng += Math.PI * 2;
+  rollEarthFlat(dAng);
+  twistSample = { angle };
 }
 
-function applyTwoFingerTwist() {
-  applyTwistFromAngle(twoFingerAngle());
+function twistFromPointerMap(reset) {
+  if (activePointers.size !== 2) {
+    if (reset) twistSample = null;
+    return;
+  }
+  const pts = [...activePointers.values()];
+  feedTwistAngle(pairAngle(pts[0].x, pts[0].y, pts[1].x, pts[1].y), reset);
+}
+
+function twistFromTouchList(touchList, reset) {
+  if (!touchList || touchList.length < 2) {
+    if (reset) twistSample = null;
+    return;
+  }
+  feedTwistAngle(
+    pairAngle(touchList[0].clientX, touchList[0].clientY, touchList[1].clientX, touchList[1].clientY),
+    reset
+  );
 }
 
 canvas.addEventListener("pointerdown", (event) => {
@@ -1095,12 +1128,10 @@ canvas.addEventListener("pointerdown", (event) => {
   pointerDown = { x: event.clientX, y: event.clientY };
   if (activePointers.size === 1) {
     globeDrag = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
-    twoFingerTwist = null;
+    twistSample = null;
   } else {
-    // Due+ dita: pan/zoom OrbitControls + twist piano (CW/CCW).
     globeDrag = null;
-    twoFingerTwist = null;
-    applyTwoFingerTwist();
+    twistFromPointerMap(true);
   }
 });
 canvas.addEventListener("pointermove", (event) => {
@@ -1114,10 +1145,10 @@ canvas.addEventListener("pointermove", (event) => {
     globeDrag.y = event.clientY;
     if (dx * dx + dy * dy > 1) {
       globeDrag.moved = true;
-      spinEarthByPointerDelta(dx, dy);
+      spinEarthByPointerDelta(dx, dy, event);
     }
   } else if (activePointers.size === 2) {
-    applyTwoFingerTwist();
+    twistFromPointerMap(false);
   }
   const entry = pickPinUnderPointer(event);
   if (entry) {
@@ -1131,12 +1162,12 @@ canvas.addEventListener("pointermove", (event) => {
 function endPointer(event) {
   activePointers.delete(event.pointerId);
   if (globeDrag && event.pointerId === globeDrag.id) globeDrag = null;
-  twoFingerTwist = null;
+  twistSample = null;
   if (activePointers.size === 1) {
     const [id, p] = activePointers.entries().next().value;
     globeDrag = { id, x: p.x, y: p.y, moved: true };
   } else if (activePointers.size === 2) {
-    applyTwoFingerTwist();
+    twistFromPointerMap(true);
   }
 }
 canvas.addEventListener("pointerup", (event) => {
@@ -1161,24 +1192,27 @@ canvas.addEventListener("pointerleave", () => {
   hidePinTooltip(hoverLandmarkId);
 });
 
-// Touch + WebKit trackpad rotate (pointer map alone often misses twist on Mac).
+// Native touch (capture): reliable two-finger twist on phones / touchscreens.
 canvas.addEventListener("touchstart", (event) => {
-  if (event.touches.length === 2) {
-    twoFingerTwist = null;
-    applyTwistFromAngle(angleFromTouches(event.touches));
+  if (event.touches.length >= 2) {
+    globeDrag = null;
+    twistFromTouchList(event.touches, true);
   }
-}, { passive: true });
+}, { capture: true, passive: true });
 canvas.addEventListener("touchmove", (event) => {
-  if (event.touches.length === 2) applyTwistFromAngle(angleFromTouches(event.touches));
-}, { passive: true });
-canvas.addEventListener("touchend", () => { twoFingerTwist = null; }, { passive: true });
-canvas.addEventListener("touchcancel", () => { twoFingerTwist = null; }, { passive: true });
+  if (event.touches.length >= 2) twistFromTouchList(event.touches, false);
+}, { capture: true, passive: true });
+canvas.addEventListener("touchend", (event) => {
+  if (event.touches.length < 2) twistSample = null;
+  else twistFromTouchList(event.touches, true);
+}, { capture: true, passive: true });
+canvas.addEventListener("touchcancel", () => { twistSample = null; }, { capture: true, passive: true });
 
-let gestureRotationDeg = 0;
+// Safari / WebKit trackpad rotate gesture.
 canvas.addEventListener("gesturestart", (event) => {
   event.preventDefault();
   gestureRotationDeg = 0;
-  twoFingerTwist = null;
+  twistSample = null;
 }, { passive: false });
 canvas.addEventListener("gesturechange", (event) => {
   event.preventDefault();
@@ -1188,11 +1222,25 @@ canvas.addEventListener("gesturechange", (event) => {
 }, { passive: false });
 canvas.addEventListener("gestureend", () => {
   gestureRotationDeg = 0;
-  twoFingerTwist = null;
+  twistSample = null;
 }, { passive: true });
-window.addEventListener("resize", () => {
-  const w = window.innerWidth, h = window.innerHeight;
-  camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); labelRenderer.setSize(w, h);
+
+if (panelToggleEl) {
+  panelToggleEl.addEventListener("click", () => {
+    const collapsed = document.body.classList.toggle("panel-collapsed");
+    panelToggleEl.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    panelToggleEl.textContent = collapsed ? "Mostra controlli" : "Nascondi controlli";
+  });
+}
+
+window.addEventListener("resize", resizeGlobe);
+window.visualViewport?.addEventListener("resize", resizeGlobe);
+window.visualViewport?.addEventListener("scroll", resizeGlobe);
+if (typeof ResizeObserver !== "undefined") {
+  new ResizeObserver(() => resizeGlobe()).observe(appRoot);
+}
+window.addEventListener("orientationchange", () => {
+  requestAnimationFrame(resizeGlobe);
 });
 function animate() {
   requestAnimationFrame(animate);

@@ -104,8 +104,8 @@ function visualRadiusFromElev(elevM) {
   return EARTH_RADIUS + heightOffset(landM);
 }
 function elevMetersAt(lat, lon) {
-  // Same ±2 texel max as the displacement vertex shader — keeps pins on the mesh.
-  return sampleElev ? sampleElev(lat, lon, 2, "max") * (REF_ELEV_M / 255) : 0;
+  // Point sample (r=0): must match flood/ocean masks — max-neighborhood flooded valleys.
+  return sampleElev ? sampleElev(lat, lon, 0, "avg") * (REF_ELEV_M / 255) : 0;
 }
 function visualRadiusAt(lat, lon) {
   return visualRadiusFromElev(elevMetersAt(lat, lon));
@@ -117,8 +117,8 @@ function oceanRadius(meters) {
 }
 
 /**
- * GEBCO→4k bilinear flattens sharp summits (Kilimanjaro etc.). Dilate high DEM
- * and stamp catalog peaks so mesh + ocean mask follow the altitude slider.
+ * GEBCO→4k bilinear flattens sharp summits. Stamp catalog peaks only —
+ * do not dilate high DEM (that flooded valleys like Guadalajara with nearby ridges).
  */
 function enrichElevationTexture(texture) {
   const img = texture.image;
@@ -131,32 +131,7 @@ function enrichElevationTexture(texture) {
   const ctx = canvasEl.getContext("2d", { willReadFrequently: true });
   ctx.drawImage(img, 0, 0);
   const imageData = ctx.getImageData(0, 0, w, h);
-  const src = new Uint8ClampedArray(imageData.data);
   const dst = imageData.data;
-  const highGate = Math.round((1800 / REF_ELEV_M) * 255);
-  const rad = 3;
-
-  function grayAt(x, y) {
-    x = ((x % w) + w) % w;
-    y = THREE.MathUtils.clamp(y, 0, h - 1);
-    return src[(y * w + x) * 4];
-  }
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      let g = src[i];
-      for (let dy = -rad; dy <= rad; dy++) {
-        for (let dx = -rad; dx <= rad; dx++) {
-          if (dx * dx + dy * dy > rad * rad) continue;
-          const n = grayAt(x + dx, y + dy);
-          if (n >= highGate || g >= highGate) g = Math.max(g, n);
-        }
-      }
-      dst[i] = dst[i + 1] = dst[i + 2] = g;
-      dst[i + 3] = 255;
-    }
-  }
 
   function stampElev(lat, lon, meters, radiusPx) {
     const gray = Math.round(THREE.MathUtils.clamp(meters / REF_ELEV_M, 0, 1) * 255);
@@ -173,15 +148,15 @@ function enrichElevationTexture(texture) {
         const y = THREE.MathUtils.clamp(cy + dy, 0, h - 1);
         const i = (y * w + x) * 4;
         const fall = 1 - Math.sqrt(dist2) / (radiusPx + 0.01);
-        const g = Math.round(gray * (0.6 + 0.4 * fall));
+        const g = Math.round(gray * (0.55 + 0.45 * fall));
         if (g > dst[i]) dst[i] = dst[i + 1] = dst[i + 2] = g;
       }
     }
   }
 
   for (const item of LANDMARKS) {
-    if (item.type !== "peak" || item.elev < 1500) continue;
-    const rPx = Math.min(14, Math.max(6, Math.round(item.elev / 800)));
+    if (item.type !== "peak" || item.elev < 2500) continue;
+    const rPx = Math.min(10, Math.max(5, Math.round(item.elev / 1000)));
     stampElev(item.lat, item.lon, item.elev, rPx);
   }
 
@@ -678,7 +653,7 @@ function loadTexture(name, colorSpace) {
 }
 
 function installFloodShader(material) {
-  material.customProgramCacheKey = () => "sea-flood-v15";
+  material.customProgramCacheKey = () => "sea-flood-v16";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     material.userData.shader = shader;
@@ -687,26 +662,22 @@ function installFloodShader(material) {
         "#include <common>",
         `#include <common>
          uniform float uSeaLevel;
-         varying float vElevM;`
+         varying float vElevM;
+         varying vec2 vElevUv;`
       )
       .replace(
         "#include <displacementmap_vertex>",
         `#ifdef USE_DISPLACEMENTMAP
-          // Neighborhood max: coarse sphere verts still catch stamped/dilated peaks.
-          vec2 eTexel = vec2( 1.0 / 4096.0, 1.0 / 2048.0 );
-          float eMax = 0.0;
-          for ( int j = -2; j <= 2; j++ ) {
-            for ( int i = -2; i <= 2; i++ ) {
-              eMax = max( eMax, texture2D( displacementMap, vDisplacementMapUv + vec2( float( i ), float( j ) ) * eTexel ).x );
-            }
-          }
-          vElevM = eMax * 9000.0;
-          // Oceano piatto; terra (anche sommersa) tiene il rilievo così restano i contorni.
+          vElevUv = vDisplacementMapUv;
+          // Exact texel (no neighborhood max): valleys must flood when below uSeaLevel.
+          float e = texture2D( displacementMap, vDisplacementMapUv ).x;
+          vElevM = e * 9000.0;
           float landM = vElevM < 2.0 ? 0.0 : vElevM;
           float h = clamp( landM / 9000.0, 0.0, 1.15 );
           transformed += normalize( objectNormal ) * ( displacementScale * h + displacementBias );
         #else
           vElevM = 0.0;
+          vElevUv = vec2( 0.0 );
         #endif`
       );
     shader.fragmentShader = shader.fragmentShader
@@ -714,12 +685,14 @@ function installFloodShader(material) {
         "#include <common>",
         `#include <common>
          uniform float uSeaLevel;
-         varying float vElevM;`
+         varying float vElevM;
+         varying vec2 vElevUv;`
       )
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
-         float elevM = vElevM;
+         // Re-sample DEM in the fragment so flood lines follow the texture, not coarse verts.
+         float elevM = texture2D( displacementMap, vElevUv ).x * 9000.0;
          float landMask = smoothstep( 1.5, 22.0, elevM );
          if ( uSeaLevel > 1.0 ) {
            float aa = max( fwidth( elevM ) * 1.2, 12.0 );
@@ -747,7 +720,7 @@ function installFloodShader(material) {
 }
 
 function installOceanShader(material, elevTexture) {
-  material.customProgramCacheKey = () => "ocean-elev-mask-v1";
+  material.customProgramCacheKey = () => "ocean-elev-mask-v2";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     shader.uniforms.uElevMap = { value: elevTexture };

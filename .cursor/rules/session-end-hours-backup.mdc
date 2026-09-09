@@ -1,0 +1,15 @@
+---
+description: End of day — work hours + session backup
+alwaysApply: true
+---
+
+# End of session: hours + backup
+
+When Alessandro says he is done for the day / going to sleep / closing the session (or asks to update hours), **before ending**:
+
+1. Run `python3 deploy/count_work_hours.py` (method in `PROJECT_TRACKING.md`).
+2. Report **both** figures: Cursor hours and traditional equivalent (`ore_Cursor × 5`).
+3. Update `PROJECT_TRACKING.md` (running total, day row, session blocks).
+4. Run `./deploy/backup_session.sh` (commit/push to GitHub). No Pi unless this project has one.
+
+Do not skip these steps when wrapping up a work day.

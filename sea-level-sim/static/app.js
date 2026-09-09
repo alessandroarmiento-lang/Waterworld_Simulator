@@ -31,31 +31,12 @@ const EARTH_RADIUS = 2;
 const DISP_SCALE = 0.16;
 const DISP_BIAS = -DISP_SCALE * 0.12;
 const REF_ELEV_M = 9000;
-const MARKER_LIFT = 0.012;
-
-const filters = { peak: true, city: true, poi: true };
-let showGlobeLabels = true;
-let seaLevelM = 0;
-let autoRotate = true;
-let selectedId = null;
-let probeInfo = null;
-let sampleElev = null;
-let sampleLights = null;
-let probeMarker = null;
-const raycaster = new THREE.Raycaster();
-const pointerNdc = new THREE.Vector2();
-let pointerDown = null;
-const entries = [];
-let earth = null;
-let ocean = null;
-const landmarksRoot = new THREE.Group();
-const PIN_UP = new THREE.Vector3(0, 1, 0);
-const RING_NORMAL = new THREE.Vector3(0, 0, 1);
-const PIN_HEIGHT = 0.0085;
-const pinGeometry = new THREE.CylinderGeometry(0.0052, 0.0052, PIN_HEIGHT, 3);
+const MARKER_LIFT = 0.014;
+const PIN_HEIGHT = 0.018;
+const pinGeometry = new THREE.CylinderGeometry(0.0065, 0.0035, PIN_HEIGHT, 3);
 pinGeometry.translate(0, PIN_HEIGHT / 2, 0);
 pinGeometry.computeVertexNormals();
-const pinHitGeometry = new THREE.SphereGeometry(0.032, 10, 10);
+const pinHitGeometry = new THREE.SphereGeometry(0.036, 10, 10);
 const pinHitMaterial = new THREE.MeshBasicMaterial({ visible: false });
 const pinMatOpts = { flatShading: true, fog: false, depthTest: false, depthWrite: false };
 const pinMaterialFlooded = new THREE.MeshBasicMaterial({ color: 0xe11d2e, ...pinMatOpts });
@@ -63,8 +44,10 @@ const pinMaterialPeak = new THREE.MeshBasicMaterial({ color: 0xf0c36a, ...pinMat
 const pinMaterialCity = new THREE.MeshBasicMaterial({ color: 0x7ec8ff, ...pinMatOpts });
 const pinMaterialPoi = new THREE.MeshBasicMaterial({ color: 0x9ddea2, ...pinMatOpts });
 const pinMaterialDry = new THREE.MeshBasicMaterial({ color: 0x22c55e, ...pinMatOpts });
-function pinMaterialFor(item) {
-  if (floodState(item.elev) === "flooded") return pinMaterialFlooded;
+/** Color from the elevation the pin actually sits on (DEM/ground), not only catalog. */
+function pinMaterialFor(item, groundElev) {
+  const elev = groundElev != null ? groundElev : item.elev;
+  if (floodState(elev) === "flooded") return pinMaterialFlooded;
   if (item.type === "peak") return pinMaterialPeak;
   if (item.type === "city") return pinMaterialCity;
   if (item.type === "poi") return pinMaterialPoi;
@@ -111,17 +94,58 @@ function latLonToVec(lat, lon, radius) {
   );
 }
 function surfaceRadius(elevM) {
-  // Legacy helper: water-top radius (probe ring / old behavior).
+  // Water-top radius (probe ring).
   return EARTH_RADIUS + heightOffset(Math.max(elevM, seaLevelM)) + MARKER_LIFT;
 }
-/** Pin sits on displaced ground (not on the water surface when flooded). */
+
+/**
+ * Resolve where a landmark pin should sit.
+ * Uses DEM height so the pin matches visible terrain; if the catalog point is
+ * still "dry" but the exact lat/lon is already underwater, snap to nearby emerged land.
+ */
+function resolveMarkerPose(lat, lon, catalogElev) {
+  let useLat = lat;
+  let useLon = lon;
+  let ground = sampleElev ? elevMetersAt(lat, lon) : catalogElev;
+  const catalogSuggestsLand = catalogElev >= Math.max(2, seaLevelM);
+  if (sampleElev && catalogSuggestsLand && ground < seaLevelM) {
+    let bestElev = ground;
+    let bestLat = lat;
+    let bestLon = lon;
+    const span = 1.25;
+    const step = 0.18;
+    for (let dLat = -span; dLat <= span; dLat += step) {
+      for (let dLon = -span; dLon <= span; dLon += step) {
+        const e = elevMetersAt(lat + dLat, lon + dLon);
+        if (e < seaLevelM) continue;
+        if (e > bestElev) {
+          bestElev = e;
+          bestLat = lat + dLat;
+          bestLon = lon + dLon;
+        }
+      }
+    }
+    if (bestElev >= seaLevelM) {
+      useLat = bestLat;
+      useLon = bestLon;
+      ground = bestElev;
+    } else {
+      // No emerged DEM nearby: keep catalog height so the pin still marks the feature.
+      ground = catalogElev;
+    }
+  } else if (catalogElev >= 2) {
+    ground = Math.max(ground, catalogElev * 0.92);
+  }
+  return {
+    lat: useLat,
+    lon: useLon,
+    groundElev: ground,
+    radius: visualRadiusFromElev(ground) + MARKER_LIFT,
+  };
+}
+
 function groundMarkerRadius(lat, lon, catalogElev) {
-  const dem = sampleElev ? elevMetersAt(lat, lon) : catalogElev;
-  // Prefer DEM for seating; keep catalog if DEM is ocean flat but catalog is a known peak/poi.
-  let ground = dem;
-  if (catalogElev >= 2 && dem < 2) ground = catalogElev;
-  else if (catalogElev >= 2) ground = Math.max(dem, catalogElev * 0.85);
-  return visualRadiusFromElev(ground) + MARKER_LIFT;
+  return resolveMarkerPose(lat, lon, catalogElev).radius;
 }
 function floodState(elevM) {
   if (elevM < seaLevelM) return "flooded";
@@ -591,18 +615,20 @@ function setSeaUniform(meters) {
 }
 
 function placeMarker(entry) {
-  const radius = groundMarkerRadius(entry.item.lat, entry.item.lon, entry.item.elev);
-  const position = latLonToVec(entry.item.lat, entry.item.lon, radius);
+  const pose = resolveMarkerPose(entry.item.lat, entry.item.lon, entry.item.elev);
+  entry.pose = pose;
+  const position = latLonToVec(pose.lat, pose.lon, pose.radius);
   const dir = position.clone().normalize();
   entry.pin.position.copy(position);
   entry.pin.quaternion.setFromUnitVectors(PIN_UP, dir);
   entry.pin.renderOrder = 4;
-  entry.label.position.copy(dir.multiplyScalar(radius + 0.028));
+  entry.pin.material = pinMaterialFor(entry.item, pose.groundElev);
+  entry.label.position.copy(dir.multiplyScalar(pose.radius + 0.032));
 }
 
 function createMarker(item) {
   const meta = TYPE_META[item.type];
-  const pin = new THREE.Mesh(pinGeometry, pinMaterialFor(item));
+  const pin = new THREE.Mesh(pinGeometry, pinMaterialFor(item, item.elev));
   pin.renderOrder = 4;
   const hit = new THREE.Mesh(pinHitGeometry, pinHitMaterial);
   hit.position.y = PIN_HEIGHT * 0.55;
@@ -715,12 +741,12 @@ function rebuildList() {
 
 function refreshFloodUI() {
   for (const entry of entries) {
-    const state = floodState(entry.item.elev);
+    placeMarker(entry);
+    const groundElev = entry.pose ? entry.pose.groundElev : entry.item.elev;
+    const state = floodState(groundElev);
     entry.el.classList.toggle("is-flooded", state === "flooded");
     entry.el.classList.toggle("is-risk", state === "risk");
-    entry.pin.material = pinMaterialFor(entry.item);
-    entry.el.title = entry.item.name + " — " + formatElev(entry.item.elev) + " — " + floodLabel(entry.item.elev);
-    placeMarker(entry);
+    entry.el.title = entry.item.name + " — " + formatElev(entry.item.elev) + " — " + floodLabel(groundElev);
   }
   rebuildList();
   if (selectedId) renderSelection(selectedId);

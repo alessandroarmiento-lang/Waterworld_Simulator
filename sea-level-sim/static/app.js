@@ -439,6 +439,9 @@ controls.dampingFactor = 0.06;
 controls.minDistance = 2.02;
 controls.maxDistance = 16;
 controls.zoomSpeed = 1.15;
+// Pan/zoom move the camera; spinning the globe is done on the Earth mesh
+// around the polar axis through the center (not OrbitControls rotate).
+controls.enableRotate = false;
 controls.enablePan = true;
 controls.screenSpacePanning = true;
 controls.panSpeed = 0.85;
@@ -446,8 +449,11 @@ controls.target.set(0, 0, 0);
 controls.addEventListener("start", () => { autoRotate = false; rotateEl.checked = false; });
 
 const GLOBE_CENTER = new THREE.Vector3(0, 0, 0);
-const SPIN_AXIS = new THREE.Vector3(0, 1, 0); // polo N–S attraverso il centro del modello
+const SPIN_AXIS = new THREE.Vector3(0, 1, 0); // poli N–S, attraverso il centro
 const AUTO_SPIN_RAD = 0.00035;
+const DRAG_SPIN_SENS = 0.005;
+const activePointers = new Map();
+let globeDrag = null;
 
 scene.add(new THREE.AmbientLight(0xffffff, 2.1));
 // Nessun sole direzionale: le terre emerse restano chiare su tutto il globo.
@@ -1025,31 +1031,76 @@ searchFormEl.addEventListener("submit", (event) => {
   goToSearchMatch();
 });
 rotateEl.addEventListener("change", () => { autoRotate = rotateEl.checked; });
+
+function spinEarthByPointerDelta(dx, _dy) {
+  if (!earth) return;
+  // Solo asse terrestre (poli N–S attraverso il centro): non tippare i poli.
+  earth.rotateOnAxis(SPIN_AXIS, dx * DRAG_SPIN_SENS);
+  autoRotate = false;
+  rotateEl.checked = false;
+}
+
 canvas.addEventListener("pointerdown", (event) => {
+  activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
   if (event.button !== 0) return;
   pointerDown = { x: event.clientX, y: event.clientY };
+  if (activePointers.size === 1) {
+    globeDrag = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+  } else {
+    // Due+ dita: solo pan/zoom di OrbitControls, niente spin del globo.
+    globeDrag = null;
+  }
 });
 canvas.addEventListener("pointermove", (event) => {
+  if (activePointers.has(event.pointerId)) {
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  }
+  if (globeDrag && event.pointerId === globeDrag.id && activePointers.size === 1) {
+    const dx = event.clientX - globeDrag.x;
+    const dy = event.clientY - globeDrag.y;
+    globeDrag.x = event.clientX;
+    globeDrag.y = event.clientY;
+    if (dx * dx + dy * dy > 1) {
+      globeDrag.moved = true;
+      spinEarthByPointerDelta(dx, dy);
+    }
+  }
   const entry = pickPinUnderPointer(event);
   if (entry) {
     if (hoverLandmarkId !== entry.item.id) showPinTooltip(entry.item, event);
     else positionPinTooltip(event.clientX, event.clientY);
   } else if (hoverLandmarkId) {
-    // Non nascondere se il tooltip è gestito dall’etichetta HTML.
     const overLabel = document.elementFromPoint(event.clientX, event.clientY)?.closest?.(".landmark-label");
     if (!overLabel) hidePinTooltip(hoverLandmarkId);
   }
 });
+function endPointer(event) {
+  activePointers.delete(event.pointerId);
+  if (globeDrag && event.pointerId === globeDrag.id) globeDrag = null;
+  if (activePointers.size === 1) {
+    const [id, p] = activePointers.entries().next().value;
+    globeDrag = { id, x: p.x, y: p.y, moved: true };
+  }
+}
 canvas.addEventListener("pointerup", (event) => {
+  const wasDrag = globeDrag && globeDrag.id === event.pointerId ? globeDrag : null;
+  endPointer(event);
   if (!pointerDown || event.button !== 0) return;
   const dx = event.clientX - pointerDown.x;
   const dy = event.clientY - pointerDown.y;
   pointerDown = null;
-  if (dx * dx + dy * dy > 36) return;
+  if (wasDrag?.moved || dx * dx + dy * dy > 36) return;
   pickOnCanvas(event);
 });
-canvas.addEventListener("pointerleave", () => {
+canvas.addEventListener("pointercancel", (event) => {
+  endPointer(event);
   pointerDown = null;
+});
+canvas.addEventListener("pointerleave", () => {
+  if (activePointers.size === 0) {
+    pointerDown = null;
+    globeDrag = null;
+  }
   hidePinTooltip(hoverLandmarkId);
 });
 window.addEventListener("resize", () => {
@@ -1059,7 +1110,7 @@ window.addEventListener("resize", () => {
 function animate() {
   requestAnimationFrame(animate);
   if (earth && autoRotate) {
-    // Rotazione del modello sull’asse polare (attraversa il centro della Terra).
+    // Sempre sull’asse polare attraverso il centro del modello.
     earth.rotateOnAxis(SPIN_AXIS, AUTO_SPIN_RAD);
   }
   controls.update();

@@ -453,8 +453,11 @@ const AUTO_SPIN_RAD = 0.00035;
 const DRAG_SPIN_SENS = 0.005;
 const _dragAxisRight = new THREE.Vector3();
 const _dragAxisUp = new THREE.Vector3();
+const _dragAxisLook = new THREE.Vector3();
 const activePointers = new Map();
 let globeDrag = null;
+/** @type {{ angle: number } | null} */
+let twoFingerTwist = null;
 
 scene.add(new THREE.AmbientLight(0xffffff, 2.1));
 // Nessun sole direzionale: le terre emerse restano chiare su tutto il globo.
@@ -1044,15 +1047,49 @@ function spinEarthByPointerDelta(dx, dy) {
   rotateEl.checked = false;
 }
 
+function twoFingerAngle() {
+  if (activePointers.size !== 2) return null;
+  const pts = [...activePointers.values()];
+  return Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+}
+
+/** Flat roll about the view axis through the sphere center (CW / CCW). */
+function rollEarthFlat(deltaAngle) {
+  if (!earth || !Number.isFinite(deltaAngle) || Math.abs(deltaAngle) < 1e-6) return;
+  camera.getWorldDirection(_dragAxisLook);
+  // Screen-plane twist: fingers clockwise → map turns clockwise.
+  earth.rotateOnWorldAxis(_dragAxisLook, -deltaAngle);
+  autoRotate = false;
+  rotateEl.checked = false;
+}
+
+function applyTwoFingerTwist() {
+  const angle = twoFingerAngle();
+  if (angle == null) {
+    twoFingerTwist = null;
+    return;
+  }
+  if (twoFingerTwist) {
+    let dAng = angle - twoFingerTwist.angle;
+    if (dAng > Math.PI) dAng -= Math.PI * 2;
+    if (dAng < -Math.PI) dAng += Math.PI * 2;
+    rollEarthFlat(dAng);
+  }
+  twoFingerTwist = { angle };
+}
+
 canvas.addEventListener("pointerdown", (event) => {
   activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
   if (event.button !== 0) return;
   pointerDown = { x: event.clientX, y: event.clientY };
   if (activePointers.size === 1) {
     globeDrag = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+    twoFingerTwist = null;
   } else {
-    // Due+ dita: solo pan/zoom di OrbitControls, niente spin del globo.
+    // Due+ dita: pan/zoom OrbitControls + twist piano (CW/CCW).
     globeDrag = null;
+    twoFingerTwist = null;
+    applyTwoFingerTwist();
   }
 });
 canvas.addEventListener("pointermove", (event) => {
@@ -1068,6 +1105,8 @@ canvas.addEventListener("pointermove", (event) => {
       globeDrag.moved = true;
       spinEarthByPointerDelta(dx, dy);
     }
+  } else if (activePointers.size === 2) {
+    applyTwoFingerTwist();
   }
   const entry = pickPinUnderPointer(event);
   if (entry) {
@@ -1081,9 +1120,12 @@ canvas.addEventListener("pointermove", (event) => {
 function endPointer(event) {
   activePointers.delete(event.pointerId);
   if (globeDrag && event.pointerId === globeDrag.id) globeDrag = null;
+  twoFingerTwist = null;
   if (activePointers.size === 1) {
     const [id, p] = activePointers.entries().next().value;
     globeDrag = { id, x: p.x, y: p.y, moved: true };
+  } else if (activePointers.size === 2) {
+    applyTwoFingerTwist();
   }
 }
 canvas.addEventListener("pointerup", (event) => {

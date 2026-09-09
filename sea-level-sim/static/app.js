@@ -106,7 +106,9 @@ function visualRadiusAt(lat, lon) {
   return visualRadiusFromElev(elevMetersAt(lat, lon));
 }
 function oceanRadius(meters) {
-  return EARTH_RADIUS + heightOffset(meters) + 0.004;
+  // Slightly *below* the displaced height at this sea level so any DEM land
+  // above the waterline can poke through (was +0.004 and hid ~200 m of relief).
+  return EARTH_RADIUS + heightOffset(meters) - 0.0015;
 }
 function latLonToVec(lat, lon, radius) {
   const phi = THREE.MathUtils.degToRad(90 - lat);
@@ -581,7 +583,7 @@ function loadTexture(name, colorSpace) {
 }
 
 function installFloodShader(material) {
-  material.customProgramCacheKey = () => "sea-flood-v13";
+  material.customProgramCacheKey = () => "sea-flood-v14";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     material.userData.shader = shader;
@@ -1060,7 +1062,7 @@ async function buildGlobe() {
     new THREE.MeshBasicMaterial({
       color: 0x0c4a7a,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.38,
       depthWrite: false,
       polygonOffset: true,
       polygonOffsetFactor: 1,

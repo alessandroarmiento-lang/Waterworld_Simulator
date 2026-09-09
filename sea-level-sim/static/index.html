@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Waterworld Simulator 1.0</title>
-    <link rel="stylesheet" href="/static/style.css?v=15" />
+    <link rel="stylesheet" href="/static/style.css?v=16" />
     <script type="importmap">
       {
         "imports": {
@@ -60,6 +60,16 @@
           <input id="rotate-globe" type="checkbox" checked />
           Rotazione automatica
         </label>
+        <div class="gestures" aria-label="Gesture">
+          <p class="gestures-title">Gesture</p>
+          <ul>
+            <li><span>1 dito</span> ruota la sfera (in ogni direzione)</li>
+            <li><span>2 dita trascina</span> sposta (pan)</li>
+            <li><span>2 dita pinch</span> zoom</li>
+            <li><span>2 dita torsione</span> orario / antiorario</li>
+            <li><span>Clic</span> quota, città, terreno</li>
+          </ul>
+        </div>
         <form class="search-block" id="landmark-search-form">
           <label for="landmark-search">Cerca luogo</label>
           <input id="landmark-search" type="search" placeholder="Es. Legnano — Invio per inquadrare" autocomplete="off" />
@@ -78,6 +88,6 @@
       <div id="status" class="status" hidden></div>
       <div id="pin-tooltip" class="pin-tooltip" hidden role="tooltip"></div>
     </div>
-    <script type="module" src="/static/app.js?v=37"></script>
+    <script type="module" src="/static/app.js?v=38"></script>
   </body>
 </html>

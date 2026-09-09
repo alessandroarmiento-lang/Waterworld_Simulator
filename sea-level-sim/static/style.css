@@ -52,6 +52,38 @@ input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer;
 .filters label, .rotate-row, .flag-row { display: flex; align-items: center; gap: .5rem; font-size: .88rem; cursor: pointer; }
 .flag-row { margin-top: .95rem; padding: .7rem .75rem; border: 1px solid var(--accent); border-radius: .75rem; background: var(--accent-soft); font-weight: 600; }
 .rotate-row { margin-top: .75rem; }
+.gestures {
+  margin-top: .75rem;
+  padding: .55rem .7rem;
+  border: 1px solid var(--line);
+  border-radius: .65rem;
+  background: rgba(0, 0, 0, 0.18);
+}
+.gestures-title {
+  margin: 0 0 .35rem;
+  font-size: .68rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.gestures ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: .22rem;
+}
+.gestures li {
+  margin: 0;
+  font-size: .74rem;
+  line-height: 1.35;
+  color: var(--muted);
+}
+.gestures li span {
+  color: var(--ink);
+  font-weight: 600;
+}
+.gestures li span::after { content: " · "; font-weight: 400; color: var(--muted); }
 .search-block { display: grid; gap: .35rem; margin-top: .9rem; }
 .search-block label { font-size: .78rem; color: var(--muted); }
 .search-block input { width: 100%; border: 1px solid var(--line); border-radius: .55rem; background: rgba(255,255,255,.04); color: var(--ink); padding: .55rem .7rem; font: inherit; }

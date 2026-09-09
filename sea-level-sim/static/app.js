@@ -1053,6 +1053,14 @@ function twoFingerAngle() {
   return Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
 }
 
+function angleFromTouches(touches) {
+  if (!touches || touches.length < 2) return null;
+  return Math.atan2(
+    touches[1].clientY - touches[0].clientY,
+    touches[1].clientX - touches[0].clientX
+  );
+}
+
 /** Flat roll about the view axis through the sphere center (CW / CCW). */
 function rollEarthFlat(deltaAngle) {
   if (!earth || !Number.isFinite(deltaAngle) || Math.abs(deltaAngle) < 1e-6) return;
@@ -1063,8 +1071,7 @@ function rollEarthFlat(deltaAngle) {
   rotateEl.checked = false;
 }
 
-function applyTwoFingerTwist() {
-  const angle = twoFingerAngle();
+function applyTwistFromAngle(angle) {
   if (angle == null) {
     twoFingerTwist = null;
     return;
@@ -1076,6 +1083,10 @@ function applyTwoFingerTwist() {
     rollEarthFlat(dAng);
   }
   twoFingerTwist = { angle };
+}
+
+function applyTwoFingerTwist() {
+  applyTwistFromAngle(twoFingerAngle());
 }
 
 canvas.addEventListener("pointerdown", (event) => {
@@ -1149,6 +1160,36 @@ canvas.addEventListener("pointerleave", () => {
   }
   hidePinTooltip(hoverLandmarkId);
 });
+
+// Touch + WebKit trackpad rotate (pointer map alone often misses twist on Mac).
+canvas.addEventListener("touchstart", (event) => {
+  if (event.touches.length === 2) {
+    twoFingerTwist = null;
+    applyTwistFromAngle(angleFromTouches(event.touches));
+  }
+}, { passive: true });
+canvas.addEventListener("touchmove", (event) => {
+  if (event.touches.length === 2) applyTwistFromAngle(angleFromTouches(event.touches));
+}, { passive: true });
+canvas.addEventListener("touchend", () => { twoFingerTwist = null; }, { passive: true });
+canvas.addEventListener("touchcancel", () => { twoFingerTwist = null; }, { passive: true });
+
+let gestureRotationDeg = 0;
+canvas.addEventListener("gesturestart", (event) => {
+  event.preventDefault();
+  gestureRotationDeg = 0;
+  twoFingerTwist = null;
+}, { passive: false });
+canvas.addEventListener("gesturechange", (event) => {
+  event.preventDefault();
+  const deg = Number(event.rotation) || 0;
+  rollEarthFlat(((deg - gestureRotationDeg) * Math.PI) / 180);
+  gestureRotationDeg = deg;
+}, { passive: false });
+canvas.addEventListener("gestureend", () => {
+  gestureRotationDeg = 0;
+  twoFingerTwist = null;
+}, { passive: true });
 window.addEventListener("resize", () => {
   const w = window.innerWidth, h = window.innerHeight;
   camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); labelRenderer.setSize(w, h);

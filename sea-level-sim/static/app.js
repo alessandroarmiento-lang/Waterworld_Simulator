@@ -31,7 +31,7 @@ const EARTH_RADIUS = 2;
 const DISP_SCALE = 0.16;
 const DISP_BIAS = -DISP_SCALE * 0.12;
 const REF_ELEV_M = 9000;
-const MARKER_LIFT = 0.014;
+const MARKER_LIFT = 0.002;
 
 const filters = { peak: true, city: true, poi: true };
 let showGlobeLabels = true;
@@ -104,15 +104,91 @@ function visualRadiusFromElev(elevM) {
   return EARTH_RADIUS + heightOffset(landM);
 }
 function elevMetersAt(lat, lon) {
-  return sampleElev ? sampleElev(lat, lon) * (REF_ELEV_M / 255) : 0;
+  // Same ±2 texel max as the displacement vertex shader — keeps pins on the mesh.
+  return sampleElev ? sampleElev(lat, lon, 2, "max") * (REF_ELEV_M / 255) : 0;
 }
 function visualRadiusAt(lat, lon) {
   return visualRadiusFromElev(elevMetersAt(lat, lon));
 }
 function oceanRadius(meters) {
-  // Slightly *below* the displaced height at this sea level so any DEM land
-  // above the waterline can poke through (was +0.004 and hid ~200 m of relief).
+  // Same heightOffset curve as terrain displacement — waterline = set meters.
+  // Tiny bias keeps coplanar z-fighting down without swallowing emerged land.
   return EARTH_RADIUS + heightOffset(meters) - 0.0015;
+}
+
+/**
+ * GEBCO→4k bilinear flattens sharp summits (Kilimanjaro etc.). Dilate high DEM
+ * and stamp catalog peaks so mesh + ocean mask follow the altitude slider.
+ */
+function enrichElevationTexture(texture) {
+  const img = texture.image;
+  if (!img || !img.width) return texture;
+  const w = img.width;
+  const h = img.height;
+  const canvasEl = document.createElement("canvas");
+  canvasEl.width = w;
+  canvasEl.height = h;
+  const ctx = canvasEl.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const src = new Uint8ClampedArray(imageData.data);
+  const dst = imageData.data;
+  const highGate = Math.round((1800 / REF_ELEV_M) * 255);
+  const rad = 3;
+
+  function grayAt(x, y) {
+    x = ((x % w) + w) % w;
+    y = THREE.MathUtils.clamp(y, 0, h - 1);
+    return src[(y * w + x) * 4];
+  }
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      let g = src[i];
+      for (let dy = -rad; dy <= rad; dy++) {
+        for (let dx = -rad; dx <= rad; dx++) {
+          if (dx * dx + dy * dy > rad * rad) continue;
+          const n = grayAt(x + dx, y + dy);
+          if (n >= highGate || g >= highGate) g = Math.max(g, n);
+        }
+      }
+      dst[i] = dst[i + 1] = dst[i + 2] = g;
+      dst[i + 3] = 255;
+    }
+  }
+
+  function stampElev(lat, lon, meters, radiusPx) {
+    const gray = Math.round(THREE.MathUtils.clamp(meters / REF_ELEV_M, 0, 1) * 255);
+    let u = (lon + 180) / 360;
+    u -= Math.floor(u);
+    const v = THREE.MathUtils.clamp((90 - lat) / 180, 0, 1);
+    const cx = Math.floor(u * w);
+    const cy = Math.floor(v * (h - 1));
+    for (let dy = -radiusPx; dy <= radiusPx; dy++) {
+      for (let dx = -radiusPx; dx <= radiusPx; dx++) {
+        const dist2 = dx * dx + dy * dy;
+        if (dist2 > radiusPx * radiusPx) continue;
+        const x = (cx + dx + w) % w;
+        const y = THREE.MathUtils.clamp(cy + dy, 0, h - 1);
+        const i = (y * w + x) * 4;
+        const fall = 1 - Math.sqrt(dist2) / (radiusPx + 0.01);
+        const g = Math.round(gray * (0.6 + 0.4 * fall));
+        if (g > dst[i]) dst[i] = dst[i + 1] = dst[i + 2] = g;
+      }
+    }
+  }
+
+  for (const item of LANDMARKS) {
+    if (item.type !== "peak" || item.elev < 1500) continue;
+    const rPx = Math.min(14, Math.max(6, Math.round(item.elev / 800)));
+    stampElev(item.lat, item.lon, item.elev, rPx);
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  texture.image = canvasEl;
+  texture.needsUpdate = true;
+  return texture;
 }
 function latLonToVec(lat, lon, radius) {
   const phi = THREE.MathUtils.degToRad(90 - lat);
@@ -170,11 +246,14 @@ function resolveMarkerPose(lat, lon, catalogElev) {
   }
 
   const ground = sampleElev ? elevMetersAt(useLat, useLon) : catalogElev;
+  const flooded = ground < Math.max(seaLevelM, 1.5) && seaLevelM > 0.5;
+  // Sit on terrain, or on the water shell when submerged (no floating above the sea).
+  const radius = (flooded ? oceanRadius(seaLevelM) : visualRadiusFromElev(ground)) + MARKER_LIFT;
   return {
     lat: useLat,
     lon: useLon,
     groundElev: ground,
-    radius: visualRadiusFromElev(ground) + MARKER_LIFT,
+    radius,
   };
 }
 
@@ -304,12 +383,23 @@ function makeGraySampler(texture) {
   const ctx = canvasEl.getContext("2d", { willReadFrequently: true });
   ctx.drawImage(img, 0, 0);
   const { data, width, height } = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
-  return (lat, lon, radius = 1) => {
+  return (lat, lon, radius = 1, mode = "avg") => {
     let u = (lon + 180) / 360;
     u = u - Math.floor(u);
     const v = THREE.MathUtils.clamp((90 - lat) / 180, 0, 1);
     const cx = Math.floor(u * width);
     const cy = Math.floor(v * (height - 1));
+    if (mode === "max") {
+      let peak = 0;
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const x = (cx + dx + width) % width;
+          const y = THREE.MathUtils.clamp(cy + dy, 0, height - 1);
+          peak = Math.max(peak, data[(y * width + x) * 4]);
+        }
+      }
+      return peak;
+    }
     let sum = 0;
     let count = 0;
     for (let dy = -radius; dy <= radius; dy += 1) {
@@ -334,7 +424,7 @@ function nearestLandmark(lat, lon, type, maxKm) {
   return best;
 }
 function describePoint(lat, lon) {
-  const elevM = sampleElev ? sampleElev(lat, lon) * (REF_ELEV_M / 255) : 0;
+  const elevM = elevMetersAt(lat, lon);
   const lights = sampleLights ? sampleLights(lat, lon, 2) : 0;
   const worldCity = nearestCity(lat, lon, 45);
   const city = nearestLandmark(lat, lon, "city", 80);
@@ -589,7 +679,7 @@ function loadTexture(name, colorSpace) {
 }
 
 function installFloodShader(material) {
-  material.customProgramCacheKey = () => "sea-flood-v14";
+  material.customProgramCacheKey = () => "sea-flood-v15";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     material.userData.shader = shader;
@@ -603,7 +693,15 @@ function installFloodShader(material) {
       .replace(
         "#include <displacementmap_vertex>",
         `#ifdef USE_DISPLACEMENTMAP
-          vElevM = texture2D( displacementMap, vDisplacementMapUv ).x * 9000.0;
+          // Neighborhood max: coarse sphere verts still catch stamped/dilated peaks.
+          vec2 eTexel = vec2( 1.0 / 4096.0, 1.0 / 2048.0 );
+          float eMax = 0.0;
+          for ( int j = -2; j <= 2; j++ ) {
+            for ( int i = -2; i <= 2; i++ ) {
+              eMax = max( eMax, texture2D( displacementMap, vDisplacementMapUv + vec2( float( i ), float( j ) ) * eTexel ).x );
+            }
+          }
+          vElevM = eMax * 9000.0;
           // Oceano piatto; terra (anche sommersa) tiene il rilievo così restano i contorni.
           float landM = vElevM < 2.0 ? 0.0 : vElevM;
           float h = clamp( landM / 9000.0, 0.0, 1.15 );
@@ -649,9 +747,50 @@ function installFloodShader(material) {
   };
 }
 
+function installOceanShader(material, elevTexture) {
+  material.customProgramCacheKey = () => "ocean-elev-mask-v1";
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uSeaLevel = { value: seaLevelM };
+    shader.uniforms.uElevMap = { value: elevTexture };
+    material.userData.shader = shader;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+         varying vec2 vOceanUv;`
+      )
+      .replace(
+        "#include <uv_vertex>",
+        `#include <uv_vertex>
+         vOceanUv = uv;`
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+         uniform float uSeaLevel;
+         uniform sampler2D uElevMap;
+         varying vec2 vOceanUv;`
+      )
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+         float elevM = texture2D( uElevMap, vOceanUv ).x * 9000.0;
+         // Hide water where DEM is at/above the slider — shoreline tracks altitude.
+         float under = smoothstep( uSeaLevel + 30.0, uSeaLevel - 90.0, elevM );
+         if ( under < 0.02 ) discard;
+         diffuseColor.a *= under;`
+      );
+  };
+  material.transparent = true;
+  material.needsUpdate = true;
+}
+
 function setSeaUniform(meters) {
-  const shader = earth && earth.material.userData.shader;
-  if (shader) shader.uniforms.uSeaLevel.value = meters;
+  const landShader = earth && earth.material.userData.shader;
+  if (landShader) landShader.uniforms.uSeaLevel.value = meters;
+  const oceanShader = ocean && ocean.material.userData.shader;
+  if (oceanShader) oceanShader.uniforms.uSeaLevel.value = meters;
 }
 
 function placeMarker(entry) {
@@ -1053,6 +1192,8 @@ async function buildGlobe() {
   ]);
   elevMap.minFilter = THREE.LinearFilter;
   elevMap.magFilter = THREE.LinearFilter;
+  elevMap.generateMipmaps = false;
+  enrichElevationTexture(elevMap);
   sampleElev = makeGraySampler(elevMap);
   sampleLights = nightMap ? makeGraySampler(nightMap) : null;
   // Lambert (not Basic): displacementMap is required for relief + flood shader.
@@ -1064,22 +1205,20 @@ async function buildGlobe() {
     displacementBias: DISP_BIAS,
   });
   installFloodShader(material);
-  earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_RADIUS, 256, 256), material);
+  // 512 segs ≈ 0.7° — with peak stamps, summits clear the waterline.
+  earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_RADIUS, 512, 512), material);
   scene.add(earth);
   earth.add(landmarksRoot);
-  ocean = new THREE.Mesh(
-    new THREE.SphereGeometry(1, 192, 192),
-    new THREE.MeshBasicMaterial({
-      color: 0x0c4a7a,
-      transparent: true,
-      opacity: 0.38,
-      depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
-    })
-  );
-  ocean.renderOrder = -1;
+  const oceanMat = new THREE.MeshBasicMaterial({
+    color: 0x0c4a7a,
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+    depthTest: true,
+  });
+  installOceanShader(oceanMat, elevMap);
+  ocean = new THREE.Mesh(new THREE.SphereGeometry(1, 256, 256), oceanMat);
+  ocean.renderOrder = 1;
   ocean.visible = false;
   ocean.scale.setScalar(oceanRadius(0));
   earth.add(ocean);

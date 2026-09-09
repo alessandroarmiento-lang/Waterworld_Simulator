@@ -246,14 +246,12 @@ function resolveMarkerPose(lat, lon, catalogElev) {
   }
 
   const ground = sampleElev ? elevMetersAt(useLat, useLon) : catalogElev;
-  const flooded = ground < Math.max(seaLevelM, 1.5) && seaLevelM > 0.5;
-  // Sit on terrain, or on the water shell when submerged (no floating above the sea).
-  const radius = (flooded ? oceanRadius(seaLevelM) : visualRadiusFromElev(ground)) + MARKER_LIFT;
+  // Always seat on DEM terrain (underwater included); materials keep pins visible when flooded.
   return {
     lat: useLat,
     lon: useLon,
     groundElev: ground,
-    radius,
+    radius: visualRadiusFromElev(ground) + MARKER_LIFT,
   };
 }
 
@@ -574,8 +572,9 @@ function updateSearchMarkerPose() {
   const dir = position.clone().normalize();
   searchMarker.pin.position.copy(position);
   searchMarker.pin.quaternion.setFromUnitVectors(PIN_UP, dir);
-  searchMarker.pin.renderOrder = 4;
+  searchMarker.pin.renderOrder = 6;
   searchMarker.pin.material = floodState(elevM) === "flooded" ? pinMaterialFlooded : searchPinMaterial;
+  searchMarker.label.renderOrder = 6;
   searchMarker.label.position.copy(dir.clone().multiplyScalar(radius + 0.028));
   searchMarker.pin.visible = true;
   searchMarker.label.visible = true;
@@ -800,8 +799,9 @@ function placeMarker(entry) {
   const dir = position.clone().normalize();
   entry.pin.position.copy(position);
   entry.pin.quaternion.setFromUnitVectors(PIN_UP, dir);
-  entry.pin.renderOrder = 4;
+  entry.pin.renderOrder = 6;
   entry.pin.material = pinMaterialFor(entry.item, pose.groundElev);
+  entry.label.renderOrder = 6;
   entry.label.position.copy(dir.multiplyScalar(pose.radius + 0.032));
 }
 

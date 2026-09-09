@@ -462,11 +462,10 @@ controls.enablePan = true;
 controls.screenSpacePanning = true;
 controls.panSpeed = 0.85;
 controls.target.set(0, 0, 0);
-controls.addEventListener("start", () => { autoRotate = false; rotateEl.checked = false; });
 
 const GLOBE_CENTER = new THREE.Vector3(0, 0, 0);
 const AUTO_SPIN_AXIS = new THREE.Vector3(0, 1, 0); // through sphere center
-const AUTO_SPIN_RAD = 0.00035;
+const AUTO_SPIN_RAD = 0.00055;
 const DRAG_SPIN_SENS = 0.005;
 const _dragAxisRight = new THREE.Vector3();
 const _dragAxisUp = new THREE.Vector3();
@@ -896,8 +895,6 @@ function flyTo(item) {
   const start = camera.position.clone();
   const startTarget = controls.target.clone();
   let t = 0;
-  autoRotate = false;
-  rotateEl.checked = false;
   function step() {
     t = Math.min(1, t + 0.032);
     const ease = 1 - (1 - t) ** 3;
@@ -1053,6 +1050,8 @@ searchFormEl.addEventListener("submit", (event) => {
   event.preventDefault();
   goToSearchMatch();
 });
+rotateEl.checked = true;
+autoRotate = true;
 rotateEl.addEventListener("change", () => { autoRotate = rotateEl.checked; });
 
 function spinEarthByPointerDelta(dx, dy, event) {
@@ -1067,8 +1066,6 @@ function spinEarthByPointerDelta(dx, dy, event) {
   _dragAxisUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
   earth.rotateOnWorldAxis(_dragAxisUp, dx * DRAG_SPIN_SENS);
   earth.rotateOnWorldAxis(_dragAxisRight, dy * DRAG_SPIN_SENS);
-  autoRotate = false;
-  rotateEl.checked = false;
 }
 
 function pairAngle(x0, y0, x1, y1) {
@@ -1082,8 +1079,6 @@ function rollEarthFlat(deltaAngle) {
   _rollQuat.setFromAxisAngle(_dragAxisLook, -deltaAngle);
   earth.quaternion.premultiply(_rollQuat);
   earth.updateMatrixWorld(true);
-  autoRotate = false;
-  rotateEl.checked = false;
 }
 
 function feedTwistAngle(angle, reset) {

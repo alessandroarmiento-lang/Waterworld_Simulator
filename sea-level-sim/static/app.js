@@ -31,7 +31,8 @@ const EARTH_RADIUS = 2;
 const DISP_SCALE = 0.16;
 const DISP_BIAS = -DISP_SCALE * 0.12;
 const REF_ELEV_M = 9000;
-const MARKER_LIFT = 0.002;
+const MARKER_LIFT = 0.0015;
+const EARTH_SEGMENTS = 512;
 
 const filters = { peak: true, city: true, poi: true };
 let showGlobeLabels = true;
@@ -63,9 +64,6 @@ const _pinWorld = new THREE.Vector3();
 const _pinNdc = new THREE.Vector3();
 const pinMatOpts = { flatShading: true, fog: false, depthTest: false, depthWrite: false };
 const pinMaterialFlooded = new THREE.MeshBasicMaterial({ color: 0xe11d2e, ...pinMatOpts });
-const pinMaterialPeak = new THREE.MeshBasicMaterial({ color: 0xf0c36a, ...pinMatOpts });
-const pinMaterialCity = new THREE.MeshBasicMaterial({ color: 0x7ec8ff, ...pinMatOpts });
-const pinMaterialPoi = new THREE.MeshBasicMaterial({ color: 0x9ddea2, ...pinMatOpts });
 const pinMaterialDry = new THREE.MeshBasicMaterial({ color: 0x22c55e, ...pinMatOpts });
 /** Catalog altitude decides flooding (same number the panel shows); DEM only for ocean cells. */
 function pinFloodElev(item, groundElev) {
@@ -73,17 +71,12 @@ function pinFloodElev(item, groundElev) {
   return groundElev != null ? groundElev : item.elev;
 }
 
-/** Color from flood elev; type color only when both catalog and DEM are dry. */
+/** Two states only: green emerged, red submerged. */
 function pinMaterialFor(item, groundElev) {
-  if (pinIsSubmerged(pinFloodElev(item, groundElev))) return pinMaterialFlooded;
-  if (item.type === "peak") return pinMaterialPeak;
-  if (item.type === "city") return pinMaterialCity;
-  if (item.type === "poi") return pinMaterialPoi;
-  return pinMaterialDry;
+  return pinIsSubmerged(pinFloodElev(item, groundElev)) ? pinMaterialFlooded : pinMaterialDry;
 }
 let hoverLandmarkId = null;
 let searchMarker = null;
-const searchPinMaterial = new THREE.MeshBasicMaterial({ color: 0x38bdf8, ...pinMatOpts });
 
 function setStatus(message, kind = "info") {
   if (!message) { statusEl.hidden = true; statusEl.textContent = ""; return; }
@@ -109,6 +102,30 @@ function elevMetersAt(lat, lon) {
 }
 function visualRadiusAt(lat, lon) {
   return visualRadiusFromElev(elevMetersAt(lat, lon));
+}
+/**
+ * Radius of the terrain as it is really drawn. Displacement moves only sphere vertices,
+ * so between them the surface is a lerp of vertex heights: a pin placed at the DEM value
+ * of a peak would hang above the mesh. Rebuild that lerp from the vertex grid.
+ */
+function renderedRadiusAt(lat, lon) {
+  if (!sampleElev || !sampleElev.uv) return visualRadiusFromElev(elevMetersAt(lat, lon));
+  let u = (lon + 180) / 360;
+  u -= Math.floor(u);
+  const v = THREE.MathUtils.clamp((90 - lat) / 180, 0, 1);
+  const fx = u * EARTH_SEGMENTS;
+  const fy = v * EARTH_SEGMENTS;
+  const ix = Math.floor(fx);
+  const iy = Math.floor(fy);
+  const tx = fx - ix;
+  const ty = fy - iy;
+  const vertexRadius = (gx, gy) => {
+    const gray = sampleElev.uv(gx / EARTH_SEGMENTS, THREE.MathUtils.clamp(gy, 0, EARTH_SEGMENTS) / EARTH_SEGMENTS);
+    return visualRadiusFromElev(gray * (REF_ELEV_M / 255));
+  };
+  const top = vertexRadius(ix, iy) * (1 - tx) + vertexRadius(ix + 1, iy) * tx;
+  const bottom = vertexRadius(ix, iy + 1) * (1 - tx) + vertexRadius(ix + 1, iy + 1) * tx;
+  return top * (1 - ty) + bottom * ty;
 }
 /**
  * Sea sphere radius for the set waterline (meters).
@@ -179,7 +196,7 @@ function resolveMarkerPose(lat, lon, catalogElev) {
     lat: useLat,
     lon: useLon,
     groundElev: ground,
-    radius: visualRadiusFromElev(ground) + MARKER_LIFT,
+    radius: renderedRadiusAt(useLat, useLon) + MARKER_LIFT,
   };
 }
 
@@ -309,7 +326,7 @@ function makeGraySampler(texture) {
   const ctx = canvasEl.getContext("2d", { willReadFrequently: true });
   ctx.drawImage(img, 0, 0);
   const { data, width, height } = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
-  return (lat, lon, radius = 1, mode = "avg") => {
+  const sample = (lat, lon, radius = 1, mode = "avg") => {
     let u = (lon + 180) / 360;
     u = u - Math.floor(u);
     const v = THREE.MathUtils.clamp((90 - lat) / 180, 0, 1);
@@ -338,6 +355,24 @@ function makeGraySampler(texture) {
     }
     return sum / count;
   };
+  // Texture-space read matching THREE.LinearFilter, for reproducing vertex heights.
+  sample.uv = (u, v) => {
+    const x = u * width - 0.5;
+    const y = THREE.MathUtils.clamp(v, 0, 1) * (height - 1) - 0.5;
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const tx = x - x0;
+    const ty = y - y0;
+    const read = (xi, yi) => {
+      const xw = ((xi % width) + width) % width;
+      const yw = THREE.MathUtils.clamp(yi, 0, height - 1);
+      return data[(yw * width + xw) * 4];
+    };
+    const top = read(x0, y0) * (1 - tx) + read(x0 + 1, y0) * tx;
+    const bottom = read(x0, y0 + 1) * (1 - tx) + read(x0 + 1, y0 + 1) * tx;
+    return top * (1 - ty) + bottom * ty;
+  };
+  return sample;
 }
 function nearestLandmark(lat, lon, type, maxKm) {
   let best = null;
@@ -476,7 +511,7 @@ function clearSearchMarker() {
 }
 function placeSearchMarker(city, elevM) {
   clearSearchMarker();
-  const pin = new THREE.Mesh(pinGeometry, searchPinMaterial);
+  const pin = new THREE.Mesh(pinGeometry, pinMaterialDry);
   const el = document.createElement("button");
   el.type = "button";
   el.className = "landmark-label landmark-city is-selected search-result-label";
@@ -501,7 +536,7 @@ function updateSearchMarkerPose() {
   searchMarker.pin.position.copy(position);
   searchMarker.pin.quaternion.setFromUnitVectors(PIN_UP, dir);
   searchMarker.pin.renderOrder = 6;
-  searchMarker.pin.material = floodState(elevM) === "flooded" ? pinMaterialFlooded : searchPinMaterial;
+  searchMarker.pin.material = floodState(elevM) === "flooded" ? pinMaterialFlooded : pinMaterialDry;
   searchMarker.label.renderOrder = 6;
   searchMarker.label.position.copy(dir.clone().multiplyScalar(radius + 0.028));
   searchMarker.pin.visible = true;
@@ -564,12 +599,14 @@ controls.panSpeed = 0.85;
 controls.target.set(0, 0, 0);
 
 const GLOBE_CENTER = new THREE.Vector3(0, 0, 0);
-const AUTO_SPIN_AXIS = new THREE.Vector3(0, 1, 0); // through sphere center
+const EARTH_POLE = new THREE.Vector3(0, 1, 0);
 const AUTO_SPIN_RAD = 0.00055;
 const DRAG_SPIN_SENS = 0.005;
+const TILT_LIMIT = THREE.MathUtils.degToRad(88);
 const _dragAxisRight = new THREE.Vector3();
-const _dragAxisUp = new THREE.Vector3();
 const _dragAxisLook = new THREE.Vector3();
+const _poleView = new THREE.Vector3();
+const _camQuatInv = new THREE.Quaternion();
 const _rollQuat = new THREE.Quaternion();
 const activePointers = new Map();
 let globeDrag = null;
@@ -966,7 +1003,7 @@ function placeProbe(lat, lon, elevM) {
     landmarksRoot.add(probeMarker);
   }
   // Sit on the same displaced surface the user clicked (tiny lift only for z-fight).
-  const radius = visualRadiusFromElev(elevM) + 0.0015;
+  const radius = renderedRadiusAt(lat, lon) + MARKER_LIFT;
   const position = latLonToVec(lat, lon, radius);
   const dir = position.clone().normalize();
   probeMarker.position.copy(position);
@@ -1091,7 +1128,7 @@ async function buildGlobe() {
     displacementBias: DISP_BIAS,
   });
   installFloodShader(material, elevMap);
-  earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_RADIUS, 512, 512), material);
+  earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_RADIUS, EARTH_SEGMENTS, EARTH_SEGMENTS), material);
   scene.add(earth);
   earth.add(landmarksRoot);
   ocean = new THREE.Mesh(
@@ -1206,6 +1243,13 @@ rotateEl.checked = true;
 autoRotate = true;
 rotateEl.addEventListener("change", () => { autoRotate = rotateEl.checked; });
 
+/** Pole tilt read on screen: 0 = north up, +/-90 deg = pole aimed at / away from the viewer. */
+function poleTiltAngle() {
+  _poleView.copy(EARTH_POLE).applyQuaternion(earth.quaternion);
+  _poleView.applyQuaternion(_camQuatInv.copy(camera.quaternion).invert());
+  return Math.atan2(_poleView.z, _poleView.y);
+}
+
 function spinEarthByPointerDelta(dx, dy, event) {
   if (!earth) return;
   // Shift+drag: flat CW/CCW roll (works on trackpad/mouse where OS twist is unavailable).
@@ -1213,11 +1257,14 @@ function spinEarthByPointerDelta(dx, dy, event) {
     rollEarthFlat(-dx * DRAG_SPIN_SENS);
     return;
   }
-  // Trackball about the sphere center (any axis through origin).
-  _dragAxisRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
-  _dragAxisUp.setFromMatrixColumn(camera.matrixWorld, 1).normalize();
-  earth.rotateOnWorldAxis(_dragAxisUp, dx * DRAG_SPIN_SENS);
-  earth.rotateOnWorldAxis(_dragAxisRight, dy * DRAG_SPIN_SENS);
+  // North locked upright: spin about the globe's own axis, tilt about the screen horizontal.
+  earth.rotateY(dx * DRAG_SPIN_SENS);
+  const tilt = poleTiltAngle();
+  const step = THREE.MathUtils.clamp(tilt + dy * DRAG_SPIN_SENS, -TILT_LIMIT, TILT_LIMIT) - tilt;
+  if (Math.abs(step) > 1e-8) {
+    _dragAxisRight.setFromMatrixColumn(camera.matrixWorld, 0).normalize();
+    earth.rotateOnWorldAxis(_dragAxisRight, step);
+  }
 }
 
 function pairAngle(x0, y0, x1, y1) {
@@ -1392,8 +1439,8 @@ window.addEventListener("orientationchange", () => {
 function animate() {
   requestAnimationFrame(animate);
   if (earth && autoRotate) {
-    // Idle spin about vertical through the sphere center.
-    earth.rotateOnWorldAxis(AUTO_SPIN_AXIS, AUTO_SPIN_RAD);
+    // Idle spin about the globe's own axis (longitude only).
+    earth.rotateY(AUTO_SPIN_RAD);
   }
   controls.update();
   updateVisibility();

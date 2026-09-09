@@ -67,11 +67,15 @@ const pinMaterialPeak = new THREE.MeshBasicMaterial({ color: 0xf0c36a, ...pinMat
 const pinMaterialCity = new THREE.MeshBasicMaterial({ color: 0x7ec8ff, ...pinMatOpts });
 const pinMaterialPoi = new THREE.MeshBasicMaterial({ color: 0x9ddea2, ...pinMatOpts });
 const pinMaterialDry = new THREE.MeshBasicMaterial({ color: 0x22c55e, ...pinMatOpts });
-/** Color from the elevation the pin actually sits on (DEM/ground), not only catalog. */
+/** Flood if catalog OR DEM is under sea (catalog catches inland floods; DEM catches mid-ocean). */
+function pinFloodElev(item, groundElev) {
+  const dem = groundElev != null ? groundElev : item.elev;
+  return Math.min(item.elev, dem);
+}
+
+/** Color from flood elev; type color only when both catalog and DEM are dry. */
 function pinMaterialFor(item, groundElev) {
-  const elev = groundElev != null ? groundElev : item.elev;
-  // Never paint "emerso" colors on a DEM cell that is actually water.
-  if (pinIsSubmerged(elev)) return pinMaterialFlooded;
+  if (pinIsSubmerged(pinFloodElev(item, groundElev))) return pinMaterialFlooded;
   if (item.type === "peak") return pinMaterialPeak;
   if (item.type === "city") return pinMaterialCity;
   if (item.type === "poi") return pinMaterialPoi;
@@ -126,17 +130,19 @@ function surfaceRadius(elevM) {
 
 /**
  * Resolve where a landmark pin should sit.
- * Position and dry/flood color always follow DEM at the final lat/lon.
- * Never lift an ocean coordinate with catalog elevation (that looked "emersed" mid-sea).
+ * DEM only; never lift ocean cells with catalog height (false "emersed" mid-sea).
+ * Snap only when the sample is ocean-like — not when inland land is legitimately flooded
+ * (that used to jump cities onto nearby peaks above the waterline).
  */
 function resolveMarkerPose(lat, lon, catalogElev) {
   let useLat = lat;
   let useLon = lon;
-  const wetLimit = Math.max(seaLevelM, 1.5);
+  const landFloor = 2;
   let demHere = sampleElev ? elevMetersAt(lat, lon) : catalogElev;
-  const wantsLand = catalogElev >= Math.max(seaLevelM, 2);
+  const catalogIsLand = catalogElev >= landFloor;
+  const demLooksOcean = demHere < landFloor;
 
-  if (sampleElev && wantsLand && demHere < wetLimit) {
+  if (sampleElev && catalogIsLand && demLooksOcean) {
     let bestElev = -1;
     let bestLat = lat;
     let bestLon = lon;
@@ -146,7 +152,7 @@ function resolveMarkerPose(lat, lon, catalogElev) {
     for (let dLat = -span; dLat <= span; dLat += step) {
       for (let dLon = -span; dLon <= span; dLon += step) {
         const e = elevMetersAt(lat + dLat, lon + dLon);
-        if (e < wetLimit) continue;
+        if (e < landFloor) continue;
         const dist2 = dLat * dLat + dLon * dLon;
         const score = e - dist2 * 90;
         if (score > bestScore) {
@@ -157,7 +163,7 @@ function resolveMarkerPose(lat, lon, catalogElev) {
         }
       }
     }
-    if (bestElev >= wetLimit) {
+    if (bestElev >= landFloor) {
       useLat = bestLat;
       useLon = bestLon;
     }
@@ -686,7 +692,9 @@ function createMarker(item) {
 
 function landmarkTooltipHtml(item) {
   const meta = TYPE_META[item.type];
-  const state = floodLabel(item.elev);
+  const entry = entries.find((e) => e.item.id === item.id);
+  const floodElev = pinFloodElev(item, entry && entry.pose ? entry.pose.groundElev : item.elev);
+  const state = floodLabel(floodElev);
   let html = "<strong>" + item.name + "</strong>"
     + '<div class="tt-meta">' + meta.label + " · " + formatElev(item.elev) + " · " + state + "</div>";
   if (item.range) html += '<div class="tt-meta">Catena: ' + item.range + "</div>";
@@ -813,11 +821,11 @@ function rebuildList() {
 function refreshFloodUI() {
   for (const entry of entries) {
     placeMarker(entry);
-    const groundElev = entry.pose ? entry.pose.groundElev : entry.item.elev;
-    const state = floodState(groundElev);
+    const floodElev = pinFloodElev(entry.item, entry.pose ? entry.pose.groundElev : entry.item.elev);
+    const state = floodState(floodElev);
     entry.el.classList.toggle("is-flooded", state === "flooded");
     entry.el.classList.toggle("is-risk", state === "risk");
-    entry.el.title = entry.item.name + " — " + formatElev(entry.item.elev) + " — " + floodLabel(groundElev);
+    entry.el.title = entry.item.name + " — " + formatElev(entry.item.elev) + " — " + floodLabel(floodElev);
   }
   rebuildList();
   if (selectedId) renderSelection(selectedId);
@@ -979,7 +987,9 @@ function renderSelection(id) {
   const item = LANDMARKS.find((l) => l.id === id);
   if (!item) { selectedEl.hidden = true; return; }
   const meta = TYPE_META[item.type];
-  const state = floodState(item.elev);
+  const entry = entries.find((e) => e.item.id === id);
+  const floodElev = pinFloodElev(item, entry && entry.pose ? entry.pose.groundElev : item.elev);
+  const state = floodState(floodElev);
   const country = lookupCountry(item.lat, item.lon);
   let rangeName = item.range || null;
   if (!rangeName && item.type === "peak") {
@@ -995,7 +1005,7 @@ function renderSelection(id) {
     + "Altitudine: <strong>" + formatElev(item.elev) + "</strong> s.l.m.<br>"
     + formatCoords(item.lat, item.lon) + "</p>"
     + '<p class="sel-note">' + (item.note || "") + "</p>"
-    + '<p class="sel-flood flood-' + state + '">Con mare a ' + formatSea(seaLevelM) + ': <strong>' + floodLabel(item.elev) + "</strong></p>";
+    + '<p class="sel-flood flood-' + state + '">Con mare a ' + formatSea(seaLevelM) + ': <strong>' + floodLabel(floodElev) + "</strong></p>";
 }
 
 function flyTo(item) {

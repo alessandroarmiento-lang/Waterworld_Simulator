@@ -57,6 +57,7 @@ let probeInfo = null;
 let sampleElev = null;
 let sampleLights = null;
 let probeMarker = null;
+let probePlaced = false;
 const raycaster = new THREE.Raycaster();
 const pointerNdc = new THREE.Vector2();
 let pointerDown = null;
@@ -82,6 +83,7 @@ const _probeEast = new THREE.Vector3();
 const _probeUp = new THREE.Vector3();
 const _probeDir = new THREE.Vector3();
 const _probePoint = new THREE.Vector3();
+const _probeAnchor = new THREE.Vector3();
 const PIN_HOVER_PX = 26;
 const PIN_CLICK_PX = 11;
 const _pinWorld = new THREE.Vector3();
@@ -794,7 +796,7 @@ function selectWorldCity(city) {
   const elevM = elevMetersAt(city.lat, city.lon);
   placeSearchMarker(city, elevM);
   probeInfo = describePoint(city.lat, city.lon);
-  if (probeMarker) probeMarker.visible = false;
+  hideProbe();
   renderProbe(probeInfo);
   rebuildList();
   flyTo({ lat: city.lat, lon: city.lon, elev: elevM });
@@ -1216,6 +1218,13 @@ function updateVisibility() {
     searchMarker.label.visible = showGlobeLabels;
     searchMarker.el.style.visibility = showGlobeLabels ? "visible" : "hidden";
   }
+  if (probeMarker && probePlaced) {
+    // The marker ignores depth, so nothing but the far side of the globe may hide it.
+    probeMarker.localToWorld(_visWorld.copy(_probeAnchor));
+    _visNormal.copy(_visWorld).normalize();
+    _visToCam.copy(camera.position).sub(_visWorld).normalize();
+    probeMarker.visible = _visNormal.dot(_visToCam) > 0;
+  }
 }
 
 function hideLabelsOverPanel() {
@@ -1289,18 +1298,25 @@ function placeProbe(lat, lon) {
         side: THREE.DoubleSide,
         transparent: true,
         opacity: 0.7, // the wall stands up: solid teal would hide the ground behind it
-        depthTest: true,
+        // Drawn over water and terrain alike, like the pins: a mountain in front of the
+        // marker used to eat half of it.
+        depthTest: false,
         depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -2,
-        polygonOffsetUnits: -2,
       })
     );
-    probeMarker.renderOrder = 3;
+    probeMarker.renderOrder = 5;
     landmarksRoot.add(probeMarker);
   }
   drapeProbeRing(probeMarker.geometry, lat, lon);
+  // Kept for the per-frame check: with depth testing off, only the far side must hide it.
+  _probeAnchor.copy(latLonToVec(lat, lon, renderedRadiusAt(lat, lon)));
+  probePlaced = true;
   probeMarker.visible = true;
+}
+
+function hideProbe() {
+  probePlaced = false;
+  if (probeMarker) probeMarker.visible = false;
 }
 
 function makeProbeRing() {
@@ -1321,10 +1337,11 @@ function makeProbeRing() {
 
 /**
  * The click marker is a cylinder laid on the ground: a band that follows the terrain plus
- * a low wall on its outer edge. It spans about 100 km, so a flat disc on a tangent plane
- * cut into the uphill side of a mountain and the circle came out broken; the wall keeps it
- * readable when the slope is seen edge-on. Points under water ride the sea surface, or the
- * marker would disappear whenever the clicked spot is flooded.
+ * a wall on its outer edge. It spans about 100 km, so a flat disc on a tangent plane cut
+ * into the uphill side of a mountain and the circle came out broken. Only the base follows
+ * the relief; the top rim sits at one radius, above the highest ground the ring covers, so
+ * it reads as a level circle from any angle. Points under water ride the sea surface, or
+ * the marker would disappear whenever the clicked spot is flooded.
  */
 function drapeProbeRing(geometry, lat, lon) {
   const centre = latLonToVec(lat, lon, 1);
@@ -1336,22 +1353,33 @@ function drapeProbeRing(geometry, lat, lon) {
   const water = oceanRadius(seaLevelM);
   const position = geometry.attributes.position;
   const array = position.array;
+  let highest = 0;
   for (let i = 0; i <= PROBE_SEGMENTS; i += 1) {
     const angle = (i / PROBE_SEGMENTS) * Math.PI * 2;
     _probeDir.copy(_probeEast).multiplyScalar(Math.cos(angle)).addScaledVector(_probeUp, Math.sin(angle));
-    for (let corner = 0; corner < 3; corner += 1) {
+    for (let corner = 0; corner < 2; corner += 1) {
       const spread = corner === 0 ? PROBE_INNER_RAD : PROBE_OUTER_RAD;
       _probePoint.copy(centre).multiplyScalar(Math.cos(spread)).addScaledVector(_probeDir, Math.sin(spread));
       // Unit vector already: read its latitude and longitude without another normalise.
       const pointLat = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(_probePoint.y, -1, 1)));
       const pointLon = THREE.MathUtils.radToDeg(Math.atan2(_probePoint.z, -_probePoint.x)) - 180;
       const ground = Math.max(renderedRadiusAt(pointLat, pointLon), water) + MARKER_LIFT;
-      const radius = corner === 2 ? ground + PROBE_WALL : ground;
+      highest = Math.max(highest, ground);
       const at = (i * 3 + corner) * 3;
-      array[at] = _probePoint.x * radius;
-      array[at + 1] = _probePoint.y * radius;
-      array[at + 2] = _probePoint.z * radius;
+      array[at] = _probePoint.x * ground;
+      array[at + 1] = _probePoint.y * ground;
+      array[at + 2] = _probePoint.z * ground;
     }
+  }
+  const rim = highest + PROBE_WALL;
+  for (let i = 0; i <= PROBE_SEGMENTS; i += 1) {
+    // The rim shares its direction with the outer base vertex written above.
+    const outer = (i * 3 + 1) * 3;
+    _probePoint.set(array[outer], array[outer + 1], array[outer + 2]).normalize().multiplyScalar(rim);
+    const at = outer + 3;
+    array[at] = _probePoint.x;
+    array[at + 1] = _probePoint.y;
+    array[at + 2] = _probePoint.z;
   }
   position.needsUpdate = true;
   geometry.computeBoundingSphere();
@@ -1377,7 +1405,7 @@ function pickOnCanvas(event) {
       return;
     }
     clearSearchMarker();
-    if (probeMarker) probeMarker.visible = false;
+    hideProbe();
     probeInfo = null;
     selectLandmark(pinPick.item.id, false);
     return;
@@ -1445,7 +1473,7 @@ function selectLandmark(id, shouldFly) {
   clearSearchMarker();
   selectedId = id;
   probeInfo = null;
-  if (probeMarker) probeMarker.visible = false;
+  hideProbe();
   const item = LANDMARKS.find((l) => l.id === id);
   if (!item) return;
   renderSelection(id); rebuildList();
@@ -1875,7 +1903,7 @@ window.__ww = {
    * the ring gets cut by the slope; spread is the drop a flat disc would have to bridge.
    */
   probeFit: () => {
-    if (!probeMarker || !probeMarker.visible) return null;
+    if (!probeMarker || !probePlaced) return null;
     const position = probeMarker.geometry.attributes.position;
     const perUnit = REF_ELEV_M / DISP_SCALE;
     let clearance = Infinity;

@@ -35,6 +35,7 @@ const REF_ELEV_M = 9000;
 // One metre per step; anything deeper than -500 m was flattened when the map was built.
 const ELEV_OFFSET_M = 500;
 const ELEV_STEP_M = 1;
+const ELEV_FLOOR_M = -500;
 const MARKER_LIFT = 0.0015;
 // iPhone Safari cannot hold an 8k float DEM + 8k colour + 512-segment sphere in WebGL
 // memory: the UI loads, the fetch finishes, then the globe never appears. Cap mesh and
@@ -44,7 +45,7 @@ const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
 const IS_CONSTRAINED = IS_IOS
   || (typeof navigator.deviceMemory === "number" && navigator.deviceMemory > 0 && navigator.deviceMemory <= 4)
   || (navigator.maxTouchPoints > 1 && window.matchMedia("(pointer: coarse)").matches);
-const EARTH_SEGMENTS = IS_CONSTRAINED ? 256 : 512;
+const EARTH_SEGMENTS = IS_CONSTRAINED ? 256 : 1024;
 const GPU_TEX_CAP = IS_CONSTRAINED ? 4096 : 8192;
 
 const filters = { peak: true, city: true, poi: true };
@@ -66,7 +67,15 @@ let earth = null;
 let ocean = null;
 const landmarksRoot = new THREE.Group();
 const PIN_UP = new THREE.Vector3(0, 1, 0);
-const RING_NORMAL = new THREE.Vector3(0, 0, 1);
+// Click marker: the same width as the flat disc it replaces, laid on the ground and walled.
+const PROBE_SEGMENTS = 96;
+const PROBE_INNER_RAD = 0.01 / EARTH_RADIUS;
+const PROBE_OUTER_RAD = 0.016 / EARTH_RADIUS;
+const PROBE_WALL = 0.011; // about 600 m of wall: seen from the side, not just from above
+const _probeEast = new THREE.Vector3();
+const _probeUp = new THREE.Vector3();
+const _probeDir = new THREE.Vector3();
+const _probePoint = new THREE.Vector3();
 const PIN_HEIGHT = 0.018;
 const pinGeometry = new THREE.CylinderGeometry(0.0065, 0.0035, PIN_HEIGHT, 3);
 pinGeometry.translate(0, PIN_HEIGHT / 2, 0);
@@ -665,6 +674,17 @@ function describePoint(lat, lon) {
     lat, lon, elevM, lights, worldCity, city, peak, nearby, cover, country, basin, placeName, mountainRange,
   };
 }
+/**
+ * A clicked point on the sea floor reads better as a depth than as a negative altitude.
+ * The map was built with everything below ELEV_FLOOR_M flattened, so at the floor the
+ * exact figure is unknown and the line says so.
+ */
+function depthOrHeightLine(elevM) {
+  if (elevM >= 0) return "Altitudine: <strong>" + formatElev(elevM) + "</strong> s.l.m.<br>";
+  const depth = formatElev(-elevM);
+  if (elevM > ELEV_FLOOR_M) return "Profondità: <strong>" + depth + "</strong> sotto il livello del mare<br>";
+  return "Profondità: <strong>oltre " + depth + "</strong> sotto il livello del mare<br>";
+}
 function formatCoords(lat, lon) {
   const ns = lat >= 0 ? "N" : "S";
   const ew = lon >= 0 ? "E" : "O";
@@ -1253,7 +1273,7 @@ function renderProbe(info) {
   selectedEl.innerHTML = '<p class="sel-kicker">Punto sulla mappa</p><h2>' + title + "</h2>"
     + '<p class="sel-meta">Dove: ' + geo + "<br>"
     + "Tipo suolo: <strong>" + info.cover + "</strong><br>"
-    + "Altitudine: <strong>" + formatElev(info.elevM) + "</strong> s.l.m.<br>"
+    + depthOrHeightLine(info.elevM)
     + formatCoords(info.lat, info.lon) + "</p>"
     + rangeLine + place + nearby + floodLine;
 }
@@ -1261,10 +1281,12 @@ function renderProbe(info) {
 function placeProbe(lat, lon) {
   if (!probeMarker) {
     probeMarker = new THREE.Mesh(
-      new THREE.RingGeometry(0.01, 0.016, 28),
+      makeProbeRing(),
       new THREE.MeshBasicMaterial({
         color: 0x5eead4,
         side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.7, // the wall stands up: solid teal would hide the ground behind it
         depthTest: true,
         depthWrite: false,
         polygonOffset: true,
@@ -1275,13 +1297,62 @@ function placeProbe(lat, lon) {
     probeMarker.renderOrder = 3;
     landmarksRoot.add(probeMarker);
   }
-  // Sit on the same displaced surface the user clicked (tiny lift only for z-fight).
-  const radius = renderedRadiusAt(lat, lon) + MARKER_LIFT;
-  const position = latLonToVec(lat, lon, radius);
-  const dir = position.clone().normalize();
-  probeMarker.position.copy(position);
-  probeMarker.quaternion.setFromUnitVectors(RING_NORMAL, dir);
+  drapeProbeRing(probeMarker.geometry, lat, lon);
   probeMarker.visible = true;
+}
+
+function makeProbeRing() {
+  const geometry = new THREE.BufferGeometry();
+  const steps = PROBE_SEGMENTS + 1;
+  geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(steps * 3 * 3), 3));
+  const index = [];
+  for (let i = 0; i < PROBE_SEGMENTS; i += 1) {
+    const here = i * 3;
+    const next = here + 3;
+    // Flat band on the ground, then the wall standing on its outer edge.
+    index.push(here, here + 1, next + 1, here, next + 1, next);
+    index.push(here + 1, here + 2, next + 2, here + 1, next + 2, next + 1);
+  }
+  geometry.setIndex(index);
+  return geometry;
+}
+
+/**
+ * The click marker is a cylinder laid on the ground: a band that follows the terrain plus
+ * a low wall on its outer edge. It spans about 100 km, so a flat disc on a tangent plane
+ * cut into the uphill side of a mountain and the circle came out broken; the wall keeps it
+ * readable when the slope is seen edge-on. Points under water ride the sea surface, or the
+ * marker would disappear whenever the clicked spot is flooded.
+ */
+function drapeProbeRing(geometry, lat, lon) {
+  const centre = latLonToVec(lat, lon, 1);
+  // Any tangent direction serves as the ring's start; north degenerates at the poles.
+  _probeEast.set(0, 1, 0).cross(centre);
+  if (_probeEast.lengthSq() < 1e-8) _probeEast.set(1, 0, 0);
+  _probeEast.normalize();
+  _probeUp.copy(centre).cross(_probeEast).normalize();
+  const water = oceanRadius(seaLevelM);
+  const position = geometry.attributes.position;
+  const array = position.array;
+  for (let i = 0; i <= PROBE_SEGMENTS; i += 1) {
+    const angle = (i / PROBE_SEGMENTS) * Math.PI * 2;
+    _probeDir.copy(_probeEast).multiplyScalar(Math.cos(angle)).addScaledVector(_probeUp, Math.sin(angle));
+    for (let corner = 0; corner < 3; corner += 1) {
+      const spread = corner === 0 ? PROBE_INNER_RAD : PROBE_OUTER_RAD;
+      _probePoint.copy(centre).multiplyScalar(Math.cos(spread)).addScaledVector(_probeDir, Math.sin(spread));
+      // Unit vector already: read its latitude and longitude without another normalise.
+      const pointLat = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(_probePoint.y, -1, 1)));
+      const pointLon = THREE.MathUtils.radToDeg(Math.atan2(_probePoint.z, -_probePoint.x)) - 180;
+      const ground = Math.max(renderedRadiusAt(pointLat, pointLon), water) + MARKER_LIFT;
+      const radius = corner === 2 ? ground + PROBE_WALL : ground;
+      const at = (i * 3 + corner) * 3;
+      array[at] = _probePoint.x * radius;
+      array[at + 1] = _probePoint.y * radius;
+      array[at + 2] = _probePoint.z * radius;
+    }
+  }
+  position.needsUpdate = true;
+  geometry.computeBoundingSphere();
 }
 
 function inspectGlobe(lat, lon) {
@@ -1795,8 +1866,33 @@ window.__ww = {
     const { w, h } = viewportSize();
     return { x: Math.round(((p.x + 1) / 2) * w), y: Math.round(((1 - p.y) / 2) * h), z: p.z };
   },
-  /** Pin colour vs label state for every place: the two used to disagree near sea level. */
   timing: () => ({ ...loadTiming }),
+  placeProbe: (lat, lon) => placeProbe(lat, lon),
+  /**
+   * Click marker against the ground beneath it, in metres. Clearance must stay positive or
+   * the ring gets cut by the slope; spread is the drop a flat disc would have to bridge.
+   */
+  probeFit: () => {
+    if (!probeMarker || !probeMarker.visible) return null;
+    const position = probeMarker.geometry.attributes.position;
+    const perUnit = REF_ELEV_M / DISP_SCALE;
+    let clearance = Infinity;
+    let lowest = Infinity;
+    let highest = -Infinity;
+    for (let i = 0; i < position.count; i += 1) {
+      _probePoint.fromBufferAttribute(position, i);
+      const radius = _probePoint.length();
+      _probePoint.normalize();
+      const lat = 90 - THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(_probePoint.y, -1, 1)));
+      const lon = THREE.MathUtils.radToDeg(Math.atan2(_probePoint.z, -_probePoint.x)) - 180;
+      const ground = Math.max(renderedRadiusAt(lat, lon), oceanRadius(seaLevelM));
+      clearance = Math.min(clearance, radius - ground);
+      lowest = Math.min(lowest, ground);
+      highest = Math.max(highest, ground);
+    }
+    return { clearanceM: Math.round(clearance * perUnit), spreadM: Math.round((highest - lowest) * perUnit) };
+  },
+  /** Pin colour vs label state for every place: the two used to disagree near sea level. */
   states: () => entries.map((entry) => ({
     id: entry.item.id,
     name: entry.item.name,

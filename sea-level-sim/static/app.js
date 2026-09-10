@@ -905,12 +905,17 @@ function loadTexture(name, colorSpace) {
   });
 }
 
+// Four map reads per pixel instead of one buys the smooth waterline. The constrained
+// tier already renders a smaller map on a slower GPU, so there it keeps the single read.
+const ELEV_READ = IS_CONSTRAINED ? "texture2D( uElevMap, vElevUv ).x" : "elevBilinear( vElevUv )";
+
 function installFloodShader(material, elevTexture) {
-  material.customProgramCacheKey = () => "sea-flood-v23";
+  material.customProgramCacheKey = () => "sea-flood-v24-" + (IS_CONSTRAINED ? "nearest" : "bilinear");
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     // Own sampler: three exposes displacementMap to the vertex stage only.
     shader.uniforms.uElevMap = { value: elevTexture };
+    shader.uniforms.uElevSize = { value: new THREE.Vector2(elevTexture.image.width, elevTexture.image.height) };
     material.userData.shader = shader;
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -940,15 +945,30 @@ function installFloodShader(material, elevTexture) {
         `#include <common>
          uniform float uSeaLevel;
          uniform sampler2D uElevMap;
+         uniform vec2 uElevSize;
          varying float vElevM;
-         varying vec2 vElevUv;`
+         varying vec2 vElevUv;
+         // The map is sampled nearest so that the CPU readouts and the shader agree on a
+         // cell, but a raised coastline drawn cell by cell steps along 4.9 km edges. Read
+         // the four neighbours and interpolate: the waterline crosses a cell instead of
+         // hugging its border, and at a cell centre this still returns the cell's value.
+         float elevBilinear( vec2 uv ) {
+           vec2 t = uv * uElevSize - 0.5;
+           vec2 base = floor( t );
+           vec2 f = t - base;
+           vec2 texel = 1.0 / uElevSize;
+           vec2 uv00 = ( base + 0.5 ) * texel;
+           float e00 = texture2D( uElevMap, uv00 ).x;
+           float e10 = texture2D( uElevMap, uv00 + vec2( texel.x, 0.0 ) ).x;
+           float e01 = texture2D( uElevMap, uv00 + vec2( 0.0, texel.y ) ).x;
+           float e11 = texture2D( uElevMap, uv00 + texel ).x;
+           return mix( mix( e00, e10, f.x ), mix( e01, e11, f.x ), f.y );
+         }`
       )
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
-         // Metres, from the map's own cell: the texture filters nearest, so this is the
-         // same value the pin and the click probe read and they cannot disagree.
-         float elevM = texture2D( uElevMap, vElevUv ).x;
+         float elevM = ${ELEV_READ};
          float landMask = smoothstep( 1.5, 22.0, elevM );
          if ( uSeaLevel > 1.0 ) {
            // Narrow transition: a wide antialias band let whole ranges read as dry land

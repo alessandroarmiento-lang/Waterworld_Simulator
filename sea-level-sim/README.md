@@ -12,6 +12,10 @@ python main.py
 
 Apri http://127.0.0.1:8000
 
+### Icona su iPhone (Schermata Home)
+
+Serve un URL raggiungibile dal telefono (Mac e iPhone sulla stessa Wi‑Fi: avvia il server sul Mac e apri `http://<IP-del-Mac>:8000` in Safari). Poi Safari → Condividi → Aggiungi a Schermata Home. L’URL del Cloud Agent non va bene: sparisce a fine run.
+
 ## Controlli
 
 - Slider 0–9000 m (oltre +135 m è scenario narrativo / non scientifico)

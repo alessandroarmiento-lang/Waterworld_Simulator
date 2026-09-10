@@ -67,19 +67,21 @@ let earth = null;
 let ocean = null;
 const landmarksRoot = new THREE.Group();
 const PIN_UP = new THREE.Vector3(0, 1, 0);
-// Click marker: the same width as the flat disc it replaces, laid on the ground and walled.
-const PROBE_SEGMENTS = 96;
-const PROBE_INNER_RAD = 0.01 / EARTH_RADIUS;
-const PROBE_OUTER_RAD = 0.016 / EARTH_RADIUS;
-const PROBE_WALL = 0.011; // about 600 m of wall: seen from the side, not just from above
-const _probeEast = new THREE.Vector3();
-const _probeUp = new THREE.Vector3();
-const _probeDir = new THREE.Vector3();
-const _probePoint = new THREE.Vector3();
 const PIN_HEIGHT = 0.018;
 const pinGeometry = new THREE.CylinderGeometry(0.0065, 0.0035, PIN_HEIGHT, 3);
 pinGeometry.translate(0, PIN_HEIGHT / 2, 0);
 pinGeometry.computeVertexNormals();
+// Click marker: the same width as the flat disc it replaces, laid on the ground and walled.
+// The wall stands taller than a pin, so the marker never reads as shorter than the pins
+// standing next to it. PIN_HEIGHT is about 1000 m, so this is close to 3000 m.
+const PROBE_SEGMENTS = 96;
+const PROBE_INNER_RAD = 0.01 / EARTH_RADIUS;
+const PROBE_OUTER_RAD = 0.016 / EARTH_RADIUS;
+const PROBE_WALL = PIN_HEIGHT * 2.8;
+const _probeEast = new THREE.Vector3();
+const _probeUp = new THREE.Vector3();
+const _probeDir = new THREE.Vector3();
+const _probePoint = new THREE.Vector3();
 const PIN_HOVER_PX = 26;
 const PIN_CLICK_PX = 11;
 const _pinWorld = new THREE.Vector3();

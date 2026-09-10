@@ -635,9 +635,12 @@ scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xb9d4ea, 
 
 const loader = new THREE.TextureLoader();
 loader.setPath("/static/textures/");
+// Bump when a texture file changes: browsers keep the old copy otherwise, and a stale
+// elevation map means wrong altitudes everywhere.
+const TEXTURE_VERSION = "2";
 function loadTexture(name, colorSpace) {
   return new Promise((resolve, reject) => {
-    loader.load(name, (texture) => {
+    loader.load(name + "?v=" + TEXTURE_VERSION, (texture) => {
       texture.colorSpace = colorSpace;
       texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
       resolve(texture);
@@ -646,11 +649,15 @@ function loadTexture(name, colorSpace) {
 }
 
 function installFloodShader(material, elevTexture) {
-  material.customProgramCacheKey = () => "sea-flood-v19";
+  material.customProgramCacheKey = () => "sea-flood-v21";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     // Own sampler: three exposes displacementMap to the vertex stage only.
     shader.uniforms.uElevMap = { value: elevTexture };
+    const elevImg = elevTexture.image;
+    shader.uniforms.uElevSize = {
+      value: new THREE.Vector2(elevImg ? elevImg.width : 4096, elevImg ? elevImg.height : 2048),
+    };
     material.userData.shader = shader;
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -680,19 +687,25 @@ function installFloodShader(material, elevTexture) {
         `#include <common>
          uniform float uSeaLevel;
          uniform sampler2D uElevMap;
+         uniform vec2 uElevSize;
          varying float vElevM;
          varying vec2 vElevUv;`
       )
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
-         // DEM texel (not coarse vertex lerp) so valleys match the altitude slider.
-         float elevM = texture2D( uElevMap, vElevUv ).x * 9000.0;
+         // Read the map cell itself, not a blend with its neighbours: bilinear filtering
+         // was mixing a valley with the ranges around it and drawing it as dry land.
+         // Same value the pin and the click probe use, so they cannot disagree.
+         vec2 elevUv = ( floor( vElevUv * uElevSize ) + 0.5 ) / uElevSize;
+         float elevM = texture2D( uElevMap, elevUv ).x * 9000.0;
          float landMask = smoothstep( 1.5, 22.0, elevM );
          if ( uSeaLevel > 1.0 ) {
-           float aa = max( fwidth( elevM ) * 1.2, 12.0 );
+           // Narrow transition: a wide antialias band let whole ranges read as dry land
+           // even where the DEM sits hundreds of metres below the waterline.
+           float aa = clamp( fwidth( elevM ) * 0.5, 8.0, 60.0 );
            float above = ( elevM - uSeaLevel ) / aa;
-           float dryAmt = smoothstep( -0.35, 0.55, above );
+           float dryAmt = smoothstep( -0.5, 0.5, above );
            float depthM = max( 0.0, uSeaLevel - elevM );
            vec3 landLit = min( diffuseColor.rgb * vec3( 1.70, 1.48, 1.15 ), vec3( 1.0 ) );
            landLit = mix( landLit, landLit * vec3( 1.15, 1.06, 0.86 ), 0.4 );
@@ -1109,11 +1122,13 @@ function selectLandmark(id, shouldFly) {
 }
 
 /**
- * One DEM texel spans several km, so summits read far below their recorded height
- * (Denali 4165 m instead of 6190 m) and drown too early. Stamp catalog peaks back in,
- * never lowering a texel, so terrain, probe and pin state agree on the same altitude.
+ * One DEM texel spans several km, so it disagrees with the catalog altitude a place
+ * is labelled with: summits read far too low (Denali 4165 m instead of 6190 m) and a
+ * few valley sites read too high. Both cases showed a pin whose flood state contradicted
+ * the terrain under it. Write the catalog altitude into the map so terrain, click probe
+ * and pin all answer with the same number.
  */
-function stampPeaksIntoElevation(texture) {
+function stampCatalogIntoElevation(texture) {
   const img = texture.image;
   if (!img) return;
   const canvasEl = document.createElement("canvas");
@@ -1123,26 +1138,40 @@ function stampPeaksIntoElevation(texture) {
   ctx.drawImage(img, 0, 0);
   const frame = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
   const { data, width, height } = frame;
+  const grayFor = (meters) => THREE.MathUtils.clamp(Math.round((meters / REF_ELEV_M) * 255), 0, 255);
+  const texelAt = (lat, lon, dx, dy) => {
+    let u = (lon + 180) / 360;
+    u -= Math.floor(u);
+    const v = THREE.MathUtils.clamp((90 - lat) / 180, 0, 1);
+    const x = ((Math.floor(u * width) + dx) % width + width) % width;
+    const y = THREE.MathUtils.clamp(Math.floor(v * (height - 1)) + dy, 0, height - 1);
+    return (y * width + x) * 4;
+  };
+  const write = (i, gray) => {
+    data[i] = gray;
+    data[i + 1] = gray;
+    data[i + 2] = gray;
+  };
   const ringScale = [1, 0.9, 0.72]; // summit texel, then two rings of massif
   for (const item of LANDMARKS) {
-    if (item.type !== "peak" || item.elev < 1000) continue;
-    let u = (item.lon + 180) / 360;
-    u -= Math.floor(u);
-    const v = THREE.MathUtils.clamp((90 - item.lat) / 180, 0, 1);
-    const cx = Math.floor(u * width);
-    const cy = Math.floor(v * (height - 1));
-    for (let dy = -2; dy <= 2; dy += 1) {
-      for (let dx = -2; dx <= 2; dx += 1) {
-        const gray = Math.round(((item.elev * ringScale[Math.max(Math.abs(dx), Math.abs(dy))]) / REF_ELEV_M) * 255);
-        const x = ((cx + dx) % width + width) % width;
-        const y = THREE.MathUtils.clamp(cy + dy, 0, height - 1);
-        const i = (y * width + x) * 4;
-        if (gray <= data[i]) continue;
-        data[i] = gray;
-        data[i + 1] = gray;
-        data[i + 2] = gray;
+    if (!Number.isFinite(item.elev)) continue;
+    if (item.type === "peak") {
+      if (item.elev < 1000) continue;
+      for (let dy = -2; dy <= 2; dy += 1) {
+        for (let dx = -2; dx <= 2; dx += 1) {
+          const gray = grayFor(item.elev * ringScale[Math.max(Math.abs(dx), Math.abs(dy))]);
+          const i = texelAt(item.lat, item.lon, dx, dy);
+          if (gray > data[i]) write(i, gray); // a summit is a maximum: never dig
+        }
       }
+      continue;
     }
+    // Cities and areas: their own texel becomes authoritative, so the pin never
+    // contradicts the ground it stands on. One texel only, so coastlines keep their shape.
+    // The map stores 9000 m in 255 steps, so anything under ~18 m would round to sea:
+    // keep at least one step of land for places the catalog puts above water.
+    if (item.elev < 2) continue;
+    write(texelAt(item.lat, item.lon, 0, 0), Math.max(1, grayFor(item.elev)));
   }
   ctx.putImageData(frame, 0, 0);
   texture.image = canvasEl;
@@ -1161,7 +1190,7 @@ async function buildGlobe() {
   elevMap.minFilter = THREE.LinearFilter;
   elevMap.magFilter = THREE.LinearFilter;
   elevMap.generateMipmaps = false;
-  stampPeaksIntoElevation(elevMap);
+  stampCatalogIntoElevation(elevMap);
   sampleElev = makeGraySampler(elevMap);
   sampleLights = nightMap ? makeGraySampler(nightMap) : null;
   // Lambert (not Basic): displacementMap is required for relief + flood shader.
@@ -1494,6 +1523,26 @@ function animate() {
   hideLabelsOverPanel();
 }
 animate();
+// Read-only hook: lets a checker compare what the map, the pins and the panel report.
+window.__ww = {
+  sea: () => seaLevelM,
+  elev: (lat, lon) => elevMetersAt(lat, lon),
+  screenOf: (id) => {
+    const entry = entries.find((e) => e.item.id === id);
+    if (!entry) return null;
+    const p = entry.pin.getWorldPosition(new THREE.Vector3()).project(camera);
+    const { w, h } = viewportSize();
+    return { x: Math.round(((p.x + 1) / 2) * w), y: Math.round(((1 - p.y) / 2) * h), z: p.z };
+  },
+  pickAt: (x, y) => {
+    const rect = canvas.getBoundingClientRect();
+    pointerNdc.x = ((x - rect.left) / rect.width) * 2 - 1;
+    pointerNdc.y = -((y - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointerNdc, camera);
+    const picked = pickDisplacedLatLon();
+    return picked ? { lat: picked.lat, lon: picked.lon, elev: elevMetersAt(picked.lat, picked.lon) } : null;
+  },
+};
 buildGlobe().catch((err) => {
   console.error(err);
   setStatus("Errore nel caricamento delle texture. Avvia main.py almeno una volta con rete.", "error");

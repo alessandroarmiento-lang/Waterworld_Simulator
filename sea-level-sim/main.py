@@ -49,8 +49,16 @@ def build_elevation_texture(src: Path, dst: Path) -> None:
     Image.MAX_IMAGE_PIXELS = None
     log.info("Building elevation.png (0–9000 m) from GEBCO…")
     image = Image.open(src).convert("L").resize((4096, 2048), Image.Resampling.BILINEAR)
-    image = image.point(lambda gray: int(gray * NASA_ELEV_MAX_M / REF_ELEV_M))
+    image = image.point(lambda gray: round(gray * NASA_ELEV_MAX_M / REF_ELEV_M))
+    strip_color_profile(image)
+    # No icc_profile: this PNG carries altitudes, not colours. The source profile made
+    # browsers colour-manage the greys on decode and every altitude read ~30% too high.
     image.save(dst, optimize=True)
+
+
+def strip_color_profile(image: Image.Image) -> None:
+    for key in ("icc_profile", "gamma", "srgb", "chromaticity"):
+        image.info.pop(key, None)
 
 
 def ensure_assets() -> None:

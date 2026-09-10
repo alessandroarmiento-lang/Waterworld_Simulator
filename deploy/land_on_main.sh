@@ -42,10 +42,17 @@ if [[ "$src" == "main" ]]; then
   git fetch origin main --quiet || true
   if git "${PUSH_HELPER[@]}" push origin main; then
     echo "LAND_ON_MAIN: already on main — pushed"
-  else
-    echo "LAND_ON_MAIN: already on main — push failed or nothing to push"
+    exit 0
   fi
-  exit 0
+  # Report the difference instead of a maybe: "nothing to push" and "origin refused it"
+  # cannot be told apart from the caller, and one of them means the work is not landed.
+  if git rev-parse --verify origin/main >/dev/null 2>&1 \
+    && git merge-base --is-ancestor HEAD origin/main; then
+    echo "LAND_ON_MAIN: already on main — nothing to push"
+    exit 0
+  fi
+  echo "LAND_ON_MAIN: push to main failed — work is NOT on origin/main"
+  exit 1
 fi
 
 if ! git remote get-url origin >/dev/null 2>&1; then
@@ -55,8 +62,14 @@ fi
 
 git fetch origin --prune
 
-if git rev-parse --verify "origin/${src}" >/dev/null 2>&1; then
-  git branch -f "$src" "origin/${src}" 2>/dev/null || true
+if git rev-parse --verify "origin/${src}" >/dev/null 2>&1 && git rev-parse --verify "$src" >/dev/null 2>&1; then
+  # Only fast-forward the local branch to the remote. Resetting it unconditionally
+  # threw away local commits that had not been pushed yet.
+  if git merge-base --is-ancestor "$src" "origin/${src}"; then
+    git branch -f "$src" "origin/${src}" 2>/dev/null || true
+  else
+    echo "LAND_ON_MAIN: local ${src} has commits not on origin/${src} — keeping local, push it first"
+  fi
 fi
 if ! git rev-parse --verify "$src" >/dev/null 2>&1; then
   echo "LAND_ON_MAIN: unknown branch ${src}"

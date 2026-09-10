@@ -21,4 +21,10 @@ Apri http://127.0.0.1:8000
 - Clicca un punto sul globo: quota DEM, città vicina, abitazioni o terreno vuoto
 - Cerca un luogo e clicca per volare lì
 
-Il globo usa un DEM GEBCO (quote in metri). Terra emersa e acqua hanno colori nettamente distinti; la costa allagata è chiara.
+Il globo usa un DEM ETOPO 2022 a 8192×4096, PNG 16 bit con le quote in metri (passo 1 m,
+profondità limitate a -500 m). Il browser non lo decodifica: `app.js` legge i byte da sé,
+così CPU e GPU leggono lo stesso valore. Terra emersa e acqua hanno colori nettamente
+distinti; la costa allagata è chiara.
+
+Le sorgenti (ETOPO 466 MB, Blue Marble 30 MB) non stanno in git: `main.py` le scarica al
+primo avvio solo se la texture derivata manca.

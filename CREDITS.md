@@ -13,7 +13,7 @@ Waterworld Simulator 1.0
 Optional second line (allowed to keep or shorten, not remove the lines above):
 
 ```
-Data: GEBCO / NASA · GeoNames · three.js
+Data: ETOPO 2022 (NOAA) / NASA · GeoNames · three.js
 ```
 
 ## Author
@@ -25,6 +25,7 @@ Data: GEBCO / NASA · GeoNames · three.js
 
 | Asset | Source | Notes |
 | --- | --- | --- |
-| Elevation texture | GEBCO via NASA Visible Earth | Third-party terms apply |
+| Elevation texture | ETOPO 2022, NOAA NCEI | Public domain, attribution requested |
+| Colour texture | NASA Blue Marble, Visible Earth | Third-party terms apply |
 | Cities / population | GeoNames | CC BY 4.0 |
 | 3D engine | three.js | MIT (vendored) |

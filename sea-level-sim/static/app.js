@@ -31,6 +31,10 @@ const EARTH_RADIUS = 2;
 const DISP_SCALE = 0.16;
 const DISP_BIAS = -DISP_SCALE * 0.12;
 const REF_ELEV_M = 9000;
+// Elevation map encoding, mirrored from main.py: metres = sample * step - offset.
+// One metre per step; anything deeper than -500 m was flattened when the map was built.
+const ELEV_OFFSET_M = 500;
+const ELEV_STEP_M = 1;
 const MARKER_LIFT = 0.0015;
 const EARTH_SEGMENTS = 512;
 
@@ -47,6 +51,8 @@ const raycaster = new THREE.Raycaster();
 const pointerNdc = new THREE.Vector2();
 let pointerDown = null;
 const entries = [];
+const entryById = new Map();
+const listFloodRows = [];
 let earth = null;
 let ocean = null;
 const landmarksRoot = new THREE.Group();
@@ -56,12 +62,15 @@ const PIN_HEIGHT = 0.018;
 const pinGeometry = new THREE.CylinderGeometry(0.0065, 0.0035, PIN_HEIGHT, 3);
 pinGeometry.translate(0, PIN_HEIGHT / 2, 0);
 pinGeometry.computeVertexNormals();
-const pinHitGeometry = new THREE.SphereGeometry(0.012, 8, 8);
-const pinHitMaterial = new THREE.MeshBasicMaterial({ visible: false });
 const PIN_HOVER_PX = 26;
 const PIN_CLICK_PX = 11;
 const _pinWorld = new THREE.Vector3();
 const _pinNdc = new THREE.Vector3();
+// Reused every frame: allocating per marker per frame kept the collector busy.
+const _visWorld = new THREE.Vector3();
+const _visNormal = new THREE.Vector3();
+const _visToCam = new THREE.Vector3();
+const _coveredLabels = [];
 const pinMatOpts = { flatShading: true, fog: false, depthTest: false, depthWrite: false };
 const pinMaterialFlooded = new THREE.MeshBasicMaterial({ color: 0xe11d2e, ...pinMatOpts });
 const pinMaterialDry = new THREE.MeshBasicMaterial({ color: 0x22c55e, ...pinMatOpts });
@@ -73,10 +82,11 @@ function pinFloodElev(item, groundElev) {
 
 /** Two states only: green emerged, red submerged. */
 function pinMaterialFor(item, groundElev) {
-  return pinIsSubmerged(pinFloodElev(item, groundElev)) ? pinMaterialFlooded : pinMaterialDry;
+  return isSubmerged(pinFloodElev(item, groundElev)) ? pinMaterialFlooded : pinMaterialDry;
 }
 let hoverLandmarkId = null;
 let searchMarker = null;
+let flyToken = 0;
 
 function setStatus(message, kind = "info") {
   if (!message) { statusEl.hidden = true; statusEl.textContent = ""; return; }
@@ -98,7 +108,7 @@ function visualRadiusFromElev(elevM) {
 }
 function elevMetersAt(lat, lon) {
   // Point sample (r=0): must match flood/ocean masks — max-neighborhood flooded valleys.
-  return sampleElev ? sampleElev(lat, lon, 0, "avg") * (REF_ELEV_M / 255) : 0;
+  return sampleElev ? sampleElev(lat, lon, 0, "avg") : 0;
 }
 function visualRadiusAt(lat, lon) {
   return visualRadiusFromElev(elevMetersAt(lat, lon));
@@ -120,8 +130,9 @@ function renderedRadiusAt(lat, lon) {
   const tx = fx - ix;
   const ty = fy - iy;
   const vertexRadius = (gx, gy) => {
-    const gray = sampleElev.uv(gx / EARTH_SEGMENTS, THREE.MathUtils.clamp(gy, 0, EARTH_SEGMENTS) / EARTH_SEGMENTS);
-    return visualRadiusFromElev(gray * (REF_ELEV_M / 255));
+    // Sphere v runs north→south, texture v runs upwards: flip before reading.
+    const uvY = 1 - THREE.MathUtils.clamp(gy, 0, EARTH_SEGMENTS) / EARTH_SEGMENTS;
+    return visualRadiusFromElev(sampleElev.uv(gx / EARTH_SEGMENTS, uvY));
   };
   const top = vertexRadius(ix, iy) * (1 - tx) + vertexRadius(ix + 1, iy) * tx;
   const bottom = vertexRadius(ix, iy + 1) * (1 - tx) + vertexRadius(ix + 1, iy + 1) * tx;
@@ -206,13 +217,17 @@ function groundMarkerRadius(lat, lon, catalogElev) {
   return resolveMarkerPose(lat, lon, catalogElev).radius;
 }
 
-/** Pin looks submerged if DEM is under current sea (or true ocean floor). */
-function pinIsSubmerged(groundElev) {
-  return groundElev < Math.max(seaLevelM, 1.5);
+/**
+ * One rule for pin colour, panel, list and labels: they used to disagree, so a place
+ * at 1 m got a red pin while its text read "a rischio".
+ * The map cannot tell a shore at 0 m from open sea, so map level always counts as water.
+ */
+function isSubmerged(elevM) {
+  return elevM < Math.max(seaLevelM, 0.5);
 }
 
 function floodState(elevM) {
-  if (elevM < seaLevelM) return "flooded";
+  if (isSubmerged(elevM)) return "flooded";
   if (elevM < seaLevelM + 50) return "risk";
   return "dry";
 }
@@ -319,6 +334,152 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
   return 2 * r * Math.asin(Math.min(1, Math.sqrt(a)));
 }
+// Where startup time goes; read it from window.__ww.timing.
+const loadTiming = {};
+
+/**
+ * Elevation is decoded here instead of by the browser. Canvas and WebGL both collapse a
+ * 16-bit image to 8 bit while decoding it, and a colour profile on the file once made every
+ * altitude read ~30% too high. Reading the bytes ourselves keeps metres exact and leaves
+ * the browser no chance to reinterpret them.
+ */
+async function loadElevationField(name) {
+  const started = performance.now();
+  const response = await fetch("/static/textures/" + name + "?v=" + TEXTURE_VERSION);
+  if (!response.ok) throw new Error("Impossibile caricare " + name);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  loadTiming.fetch = Math.round(performance.now() - started);
+  const raster = await decodeGray16Png(bytes);
+  const { width, height, samples } = raster;
+  const beforeMetres = performance.now();
+  const metres = new Float32Array(width * height);
+  // Raster rows run north→south, WebGL samples v upwards: flip once, here.
+  for (let y = 0; y < height; y += 1) {
+    const src = y * width;
+    const dst = (height - 1 - y) * width;
+    for (let x = 0; x < width; x += 1) {
+      metres[dst + x] = samples[src + x] * ELEV_STEP_M - ELEV_OFFSET_M;
+    }
+  }
+  loadTiming.metres = Math.round(performance.now() - beforeMetres);
+  return { width, height, metres };
+}
+
+async function decodeGray16Png(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const chunkType = (at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
+  let width = 0;
+  let height = 0;
+  let depth = 0;
+  let colorType = -1;
+  let interlace = 0;
+  const parts = [];
+  let pos = 8; // past the PNG signature
+  while (pos + 8 <= bytes.length) {
+    const length = view.getUint32(pos);
+    const type = chunkType(pos + 4);
+    const start = pos + 8;
+    if (type === "IHDR") {
+      width = view.getUint32(start);
+      height = view.getUint32(start + 4);
+      depth = bytes[start + 8];
+      colorType = bytes[start + 9];
+      interlace = bytes[start + 12];
+    } else if (type === "IDAT") {
+      parts.push(bytes.subarray(start, start + length));
+    } else if (type === "IEND") {
+      break;
+    }
+    pos = start + length + 4; // skip the chunk CRC
+  }
+  if (depth !== 16 || colorType !== 0 || interlace !== 0) {
+    throw new Error("elevation: serve un PNG 16 bit grigio non interlacciato");
+  }
+  const beforeInflate = performance.now();
+  const stream = new Blob(parts).stream().pipeThrough(new DecompressionStream("deflate"));
+  const raw = new Uint8Array(await new Response(stream).arrayBuffer());
+  loadTiming.inflate = Math.round(performance.now() - beforeInflate);
+  const beforeUnfilter = performance.now();
+  const samples = unfilterGray16(raw, width, height);
+  loadTiming.unfilter = Math.round(performance.now() - beforeUnfilter);
+  return { width, height, samples };
+}
+
+/** Undo the per-row PNG filters (spec 9.2). Two bytes per pixel, so "left" is i - 2. */
+function unfilterGray16(raw, width, height) {
+  const stride = width * 2;
+  const samples = new Uint16Array(width * height);
+  const line = new Uint8Array(stride);
+  const prev = new Uint8Array(stride);
+  let at = 0;
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[at];
+    at += 1;
+    line.set(raw.subarray(at, at + stride));
+    at += stride;
+    if (filter !== 0) {
+      for (let i = 0; i < stride; i += 1) {
+        const left = i >= 2 ? line[i - 2] : 0;
+        const up = prev[i];
+        const upLeft = i >= 2 ? prev[i - 2] : 0;
+        let value = line[i];
+        if (filter === 1) value += left;
+        else if (filter === 2) value += up;
+        else if (filter === 3) value += (left + up) >> 1;
+        else if (filter === 4) {
+          const pa = Math.abs(up - upLeft);
+          const pb = Math.abs(left - upLeft);
+          const pc = Math.abs(left + up - 2 * upLeft);
+          value += pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft;
+        } else throw new Error("elevation: filtro PNG " + filter + " non previsto");
+        line[i] = value & 255;
+      }
+    }
+    for (let x = 0; x < width; x += 1) {
+      samples[y * width + x] = (line[x * 2] << 8) | line[x * 2 + 1];
+    }
+    prev.set(line);
+  }
+  return samples;
+}
+
+/**
+ * Reads the elevation field in metres. Longitude wraps, latitude clamps, and the texel
+ * picked is the one the GPU picks with a nearest filter, so pin, click probe and terrain
+ * can never answer with different cells.
+ */
+function makeElevSampler(field) {
+  const { width, height, metres } = field;
+  const indexAt = (u, uvY, dx, dy) => {
+    const wrapped = u - Math.floor(u);
+    const x = ((Math.floor(wrapped * width) + dx) % width + width) % width;
+    const row = Math.min(height - 1, Math.floor(THREE.MathUtils.clamp(uvY, 0, 1) * height));
+    const y = THREE.MathUtils.clamp(row + dy, 0, height - 1);
+    return y * width + x;
+  };
+  const sample = (lat, lon, radius = 1, mode = "avg") => {
+    const u = (lon + 180) / 360;
+    const uvY = (lat + 90) / 180;
+    if (radius === 0) return metres[indexAt(u, uvY, 0, 0)];
+    let peak = -Infinity;
+    let sum = 0;
+    let count = 0;
+    for (let dy = -radius; dy <= radius; dy += 1) {
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        const value = metres[indexAt(u, uvY, dx, dy)];
+        peak = Math.max(peak, value);
+        sum += value;
+        count += 1;
+      }
+    }
+    return mode === "max" ? peak : sum / count;
+  };
+  // Same read the vertex shader performs, for reproducing drawn terrain heights.
+  sample.uv = (u, uvY) => metres[indexAt(u, uvY, 0, 0)];
+  sample.field = field;
+  return sample;
+}
+
 function makeGraySampler(texture) {
   const img = texture.image;
   if (!img) return null;
@@ -542,8 +703,8 @@ function updateSearchMarkerPose() {
   searchMarker.label.renderOrder = 6;
   searchMarker.label.position.copy(dir.clone().multiplyScalar(radius + 0.028));
   searchMarker.pin.visible = true;
-  searchMarker.label.visible = true;
-  searchMarker.el.style.visibility = "visible";
+  searchMarker.label.visible = showGlobeLabels;
+  searchMarker.el.style.visibility = showGlobeLabels ? "visible" : "hidden";
 }
 function selectWorldCity(city) {
   selectedId = null;
@@ -637,7 +798,7 @@ const loader = new THREE.TextureLoader();
 loader.setPath("/static/textures/");
 // Bump when a texture file changes: browsers keep the old copy otherwise, and a stale
 // elevation map means wrong altitudes everywhere.
-const TEXTURE_VERSION = "2";
+const TEXTURE_VERSION = "3";
 function loadTexture(name, colorSpace) {
   return new Promise((resolve, reject) => {
     loader.load(name + "?v=" + TEXTURE_VERSION, (texture) => {
@@ -649,15 +810,11 @@ function loadTexture(name, colorSpace) {
 }
 
 function installFloodShader(material, elevTexture) {
-  material.customProgramCacheKey = () => "sea-flood-v21";
+  material.customProgramCacheKey = () => "sea-flood-v23";
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     // Own sampler: three exposes displacementMap to the vertex stage only.
     shader.uniforms.uElevMap = { value: elevTexture };
-    const elevImg = elevTexture.image;
-    shader.uniforms.uElevSize = {
-      value: new THREE.Vector2(elevImg ? elevImg.width : 4096, elevImg ? elevImg.height : 2048),
-    };
     material.userData.shader = shader;
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -671,10 +828,10 @@ function installFloodShader(material, elevTexture) {
         "#include <displacementmap_vertex>",
         `#ifdef USE_DISPLACEMENTMAP
           vElevUv = vDisplacementMapUv;
-          vElevM = texture2D( displacementMap, vDisplacementMapUv ).x * 9000.0;
+          vElevM = texture2D( displacementMap, vDisplacementMapUv ).x;
           // Oceano piatto; terra (anche sommersa) tiene il rilievo così restano i contorni.
           float landM = vElevM < 2.0 ? 0.0 : vElevM;
-          float h = clamp( landM / 9000.0, 0.0, 1.15 );
+          float h = clamp( landM / ${REF_ELEV_M.toFixed(1)}, 0.0, 1.15 );
           transformed += normalize( objectNormal ) * ( displacementScale * h + displacementBias );
         #else
           vElevM = 0.0;
@@ -687,18 +844,15 @@ function installFloodShader(material, elevTexture) {
         `#include <common>
          uniform float uSeaLevel;
          uniform sampler2D uElevMap;
-         uniform vec2 uElevSize;
          varying float vElevM;
          varying vec2 vElevUv;`
       )
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
-         // Read the map cell itself, not a blend with its neighbours: bilinear filtering
-         // was mixing a valley with the ranges around it and drawing it as dry land.
-         // Same value the pin and the click probe use, so they cannot disagree.
-         vec2 elevUv = ( floor( vElevUv * uElevSize ) + 0.5 ) / uElevSize;
-         float elevM = texture2D( uElevMap, elevUv ).x * 9000.0;
+         // Metres, from the map's own cell: the texture filters nearest, so this is the
+         // same value the pin and the click probe read and they cannot disagree.
+         float elevM = texture2D( uElevMap, vElevUv ).x;
          float landMask = smoothstep( 1.5, 22.0, elevM );
          if ( uSeaLevel > 1.0 ) {
            // Narrow transition: a wide antialias band let whole ranges read as dry land
@@ -749,9 +903,6 @@ function createMarker(item) {
   const meta = TYPE_META[item.type];
   const pin = new THREE.Mesh(pinGeometry, pinMaterialFor(item, item.elev));
   pin.renderOrder = 4;
-  const hit = new THREE.Mesh(pinHitGeometry, pinHitMaterial);
-  hit.position.y = PIN_HEIGHT * 0.55;
-  pin.add(hit);
   const el = document.createElement("button");
   el.type = "button";
   el.className = "landmark-label landmark-" + item.type;
@@ -764,16 +915,20 @@ function createMarker(item) {
   const label = new CSS2DObject(el);
   landmarksRoot.add(pin);
   landmarksRoot.add(label);
-  const entry = { item, pin, hit, label, el };
+  const entry = { item, pin, label, el };
   placeMarker(entry);
   return entry;
 }
 
+/** Height every readout judges flood state on: the one the pin already uses. */
+function itemFloodElev(item) {
+  const entry = entryById.get(item.id);
+  return pinFloodElev(item, entry && entry.pose ? entry.pose.groundElev : item.elev);
+}
+
 function landmarkTooltipHtml(item) {
   const meta = TYPE_META[item.type];
-  const entry = entries.find((e) => e.item.id === item.id);
-  const floodElev = pinFloodElev(item, entry && entry.pose ? entry.pose.groundElev : item.elev);
-  const state = floodLabel(floodElev);
+  const state = floodLabel(itemFloodElev(item));
   let html = "<strong>" + item.name + "</strong>"
     + '<div class="tt-meta">' + meta.label + " · " + formatElev(item.elev) + " · " + state + "</div>";
   if (item.range) html += '<div class="tt-meta">Catena: ' + item.range + "</div>";
@@ -861,6 +1016,7 @@ function pickPinUnderPointer(event) {
 
 function rebuildList() {
   listEl.innerHTML = "";
+  listFloodRows.length = 0;
   const rawQ = (searchEl.value || "").trim();
   const q = foldText(rawQ);
   if (q) {
@@ -871,15 +1027,18 @@ function rebuildList() {
       if (match.kind === "landmark") {
         const item = match.item;
         const meta = TYPE_META[item.type];
+        const floodElev = itemFloodElev(item);
         btn.className = "landmark-item" + (item.id === selectedId ? " active" : "");
-        btn.innerHTML = '<span class="kind" style="color:' + meta.color + '">' + meta.short + '</span><span class="body"><strong>' + item.name + '</strong><small>' + meta.label + " · " + formatElev(item.elev) + ' · <em class="flood-' + floodState(item.elev) + '">' + floodLabel(item.elev) + "</em></small></span>";
+        btn.innerHTML = '<span class="kind" style="color:' + meta.color + '">' + meta.short + '</span><span class="body"><strong>' + item.name + '</strong><small>' + meta.label + " · " + formatElev(item.elev) + ' · <em class="flood-' + floodState(floodElev) + '">' + floodLabel(floodElev) + "</em></small></span>";
         btn.addEventListener("click", () => selectLandmark(item.id, true));
+        trackListFlood(btn, floodElev);
       } else {
         const city = match.city;
         const elevM = elevMetersAt(city.lat, city.lon);
         btn.className = "landmark-item";
         btn.innerHTML = '<span class="kind" style="color:#7ec8ff">●</span><span class="body"><strong>' + city.name + '</strong><small>Città · ≈ ' + city.pop.toLocaleString("it-IT") + " ab. (GeoNames) · " + formatElev(elevM) + ' · <em class="flood-' + floodState(elevM) + '">' + floodLabel(elevM) + "</em></small></span>";
         btn.addEventListener("click", () => selectWorldCity(city));
+        trackListFlood(btn, elevM);
       }
       listEl.appendChild(btn);
     }
@@ -889,11 +1048,29 @@ function rebuildList() {
   for (const item of sorted) {
     const meta = TYPE_META[item.type];
     const btn = document.createElement("button");
+    const floodElev = itemFloodElev(item);
     btn.type = "button";
     btn.className = "landmark-item" + (item.id === selectedId ? " active" : "");
-    btn.innerHTML = '<span class="kind" style="color:' + meta.color + '">' + meta.short + '</span><span class="body"><strong>' + item.name + '</strong><small>' + meta.label + " · " + formatElev(item.elev) + ' · <em class="flood-' + floodState(item.elev) + '">' + floodLabel(item.elev) + "</em></small></span>";
+    btn.innerHTML = '<span class="kind" style="color:' + meta.color + '">' + meta.short + '</span><span class="body"><strong>' + item.name + '</strong><small>' + meta.label + " · " + formatElev(item.elev) + ' · <em class="flood-' + floodState(floodElev) + '">' + floodLabel(floodElev) + "</em></small></span>";
     btn.addEventListener("click", () => selectLandmark(item.id, true));
+    trackListFlood(btn, floodElev);
     listEl.appendChild(btn);
+  }
+}
+
+function trackListFlood(btn, floodElev) {
+  const em = btn.querySelector("em");
+  if (em) listFloodRows.push({ em, elev: floodElev });
+}
+
+/**
+ * Moving the sea only changes the state word on each row. Rebuilding all ~190 rows
+ * of markup on every slider tick made the drag stutter.
+ */
+function refreshListFlood() {
+  for (const row of listFloodRows) {
+    row.em.className = "flood-" + floodState(row.elev);
+    row.em.textContent = floodLabel(row.elev);
   }
 }
 
@@ -906,11 +1083,11 @@ function refreshFloodUI() {
     entry.el.classList.toggle("is-risk", state === "risk");
     entry.el.title = entry.item.name + " — " + formatElev(entry.item.elev) + " — " + floodLabel(floodElev);
   }
-  rebuildList();
+  refreshListFlood();
   if (selectedId) renderSelection(selectedId);
   else if (probeInfo) {
     probeInfo = describePoint(probeInfo.lat, probeInfo.lon);
-    placeProbe(probeInfo.lat, probeInfo.lon, probeInfo.elevM);
+    placeProbe(probeInfo.lat, probeInfo.lon);
     renderProbe(probeInfo);
   }
   if (searchMarker) {
@@ -928,31 +1105,39 @@ function priorityVisible(priority, camDist) {
 function updateVisibility() {
   if (!earth) return;
   const camDist = camera.position.length();
-  const worldCam = camera.position.clone();
   for (const entry of entries) {
     const showZoom = priorityVisible(entry.item.priority, camDist);
-    const worldPos = entry.pin.getWorldPosition(new THREE.Vector3());
-    const normal = worldPos.clone().normalize();
-    const toCam = worldCam.clone().sub(worldPos).normalize();
-    const facing = normal.dot(toCam) > 0.12;
+    entry.pin.getWorldPosition(_visWorld);
+    _visNormal.copy(_visWorld).normalize();
+    _visToCam.copy(camera.position).sub(_visWorld).normalize();
+    const facing = _visNormal.dot(_visToCam) > 0.12;
     const onFront = filters[entry.item.type] && showZoom && facing;
     entry.pin.visible = onFront;
     const showLabel = showGlobeLabels && onFront;
     entry.label.visible = showLabel;
     entry.el.style.visibility = showLabel ? "visible" : "hidden";
   }
+  if (searchMarker) {
+    // Follows the same checkbox as the catalog labels; it used to stay on screen.
+    searchMarker.label.visible = showGlobeLabels;
+    searchMarker.el.style.visibility = showGlobeLabels ? "visible" : "hidden";
+  }
 }
 
 function hideLabelsOverPanel() {
   if (!panelEl) return;
   const pr = panelEl.getBoundingClientRect();
+  // Read every rect first, hide afterwards: hiding inside the loop invalidated layout
+  // and forced a reflow per label, sixty times a second.
+  _coveredLabels.length = 0;
   for (const entry of entries) {
     if (entry.el.style.visibility === "hidden") continue;
     const r = entry.el.getBoundingClientRect();
     if (r.right > pr.left && r.left < pr.right && r.bottom > pr.top && r.top < pr.bottom) {
-      entry.el.style.visibility = "hidden";
+      _coveredLabels.push(entry.el);
     }
   }
+  for (const el of _coveredLabels) el.style.visibility = "hidden";
 }
 
 function renderProbe(info) {
@@ -1001,7 +1186,7 @@ function renderProbe(info) {
     + rangeLine + place + nearby + floodLine;
 }
 
-function placeProbe(lat, lon, elevM) {
+function placeProbe(lat, lon) {
   if (!probeMarker) {
     probeMarker = new THREE.Mesh(
       new THREE.RingGeometry(0.01, 0.016, 28),
@@ -1032,7 +1217,7 @@ function inspectGlobe(lat, lon) {
   for (const entry of entries) entry.el.classList.toggle("is-selected", false);
   // Keep search marker only if this inspect is for that city (handled by selectWorldCity order).
   probeInfo = describePoint(lat, lon);
-  placeProbe(probeInfo.lat, probeInfo.lon, probeInfo.elevM);
+  placeProbe(probeInfo.lat, probeInfo.lon);
   renderProbe(probeInfo);
   rebuildList();
 }
@@ -1066,8 +1251,7 @@ function renderSelection(id) {
   const item = LANDMARKS.find((l) => l.id === id);
   if (!item) { selectedEl.hidden = true; return; }
   const meta = TYPE_META[item.type];
-  const entry = entries.find((e) => e.item.id === id);
-  const floodElev = pinFloodElev(item, entry && entry.pose ? entry.pose.groundElev : item.elev);
+  const floodElev = itemFloodElev(item);
   const state = floodState(floodElev);
   const country = lookupCountry(item.lat, item.lon);
   let rangeName = item.range || null;
@@ -1089,6 +1273,8 @@ function renderSelection(id) {
 
 function flyTo(item) {
   // Camera along the ray from globe center → place; pivot stays at center.
+  // Own token: two quick selections used to run both flights and fight over the camera.
+  const token = ++flyToken;
   const radius = surfaceRadius(item.elev);
   const local = latLonToVec(item.lat, item.lon, radius);
   const worldPoint = local.clone();
@@ -1099,6 +1285,7 @@ function flyTo(item) {
   const startTarget = controls.target.clone();
   let t = 0;
   function step() {
+    if (token !== flyToken) return;
     t = Math.min(1, t + 0.032);
     const ease = 1 - (1 - t) ** 3;
     camera.position.lerpVectors(start, dest, ease);
@@ -1128,29 +1315,16 @@ function selectLandmark(id, shouldFly) {
  * the terrain under it. Write the catalog altitude into the map so terrain, click probe
  * and pin all answer with the same number.
  */
-function stampCatalogIntoElevation(texture) {
-  const img = texture.image;
-  if (!img) return;
-  const canvasEl = document.createElement("canvas");
-  canvasEl.width = img.width;
-  canvasEl.height = img.height;
-  const ctx = canvasEl.getContext("2d", { willReadFrequently: true });
-  ctx.drawImage(img, 0, 0);
-  const frame = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
-  const { data, width, height } = frame;
-  const grayFor = (meters) => THREE.MathUtils.clamp(Math.round((meters / REF_ELEV_M) * 255), 0, 255);
+function stampCatalogIntoElevation(field) {
+  const { width, height, metres } = field;
   const texelAt = (lat, lon, dx, dy) => {
     let u = (lon + 180) / 360;
     u -= Math.floor(u);
-    const v = THREE.MathUtils.clamp((90 - lat) / 180, 0, 1);
+    const uvY = THREE.MathUtils.clamp((lat + 90) / 180, 0, 1);
     const x = ((Math.floor(u * width) + dx) % width + width) % width;
-    const y = THREE.MathUtils.clamp(Math.floor(v * (height - 1)) + dy, 0, height - 1);
-    return (y * width + x) * 4;
-  };
-  const write = (i, gray) => {
-    data[i] = gray;
-    data[i + 1] = gray;
-    data[i + 2] = gray;
+    const row = Math.min(height - 1, Math.floor(uvY * height));
+    const y = THREE.MathUtils.clamp(row + dy, 0, height - 1);
+    return y * width + x;
   };
   const ringScale = [1, 0.9, 0.72]; // summit texel, then two rings of massif
   for (const item of LANDMARKS) {
@@ -1159,39 +1333,42 @@ function stampCatalogIntoElevation(texture) {
       if (item.elev < 1000) continue;
       for (let dy = -2; dy <= 2; dy += 1) {
         for (let dx = -2; dx <= 2; dx += 1) {
-          const gray = grayFor(item.elev * ringScale[Math.max(Math.abs(dx), Math.abs(dy))]);
+          const meters = item.elev * ringScale[Math.max(Math.abs(dx), Math.abs(dy))];
           const i = texelAt(item.lat, item.lon, dx, dy);
-          if (gray > data[i]) write(i, gray); // a summit is a maximum: never dig
+          if (meters > metres[i]) metres[i] = meters; // a summit is a maximum: never dig
         }
       }
       continue;
     }
     // Cities and areas: their own texel becomes authoritative, so the pin never
     // contradicts the ground it stands on. One texel only, so coastlines keep their shape.
-    // The map stores 9000 m in 255 steps, so anything under ~18 m would round to sea:
-    // keep at least one step of land for places the catalog puts above water.
-    if (item.elev < 2) continue;
-    write(texelAt(item.lat, item.lon, 0, 0), Math.max(1, grayFor(item.elev)));
+    // Below-sea places (Amsterdam, the Dead Sea) keep their negative height.
+    metres[texelAt(item.lat, item.lon, 0, 0)] = item.elev;
   }
-  ctx.putImageData(frame, 0, 0);
-  texture.image = canvasEl;
-  texture.needsUpdate = true;
 }
 
 async function buildGlobe() {
   setStatus("Caricamento texture e luoghi…");
-  const [colorMap, elevMap, nightMap] = await Promise.all([
+  const buildStarted = performance.now();
+  const [colorMap, elevField, nightMap] = await Promise.all([
     loadTexture("earth.jpg", THREE.SRGBColorSpace),
-    loadTexture("elevation.png", THREE.NoColorSpace),
+    loadElevationField("elevation.png"),
     loadTexture("earth-night.jpg", THREE.NoColorSpace).catch(() => null),
     loadCountries(),
     loadCities(),
   ]);
-  elevMap.minFilter = THREE.LinearFilter;
-  elevMap.magFilter = THREE.LinearFilter;
+  stampCatalogIntoElevation(elevField);
+  // Metres straight to the GPU: nearest and no mipmaps, so the shader reads the same
+  // single cell the pin and the click probe read.
+  const elevMap = new THREE.DataTexture(
+    elevField.metres, elevField.width, elevField.height, THREE.RedFormat, THREE.FloatType
+  );
+  elevMap.magFilter = THREE.NearestFilter;
+  elevMap.minFilter = THREE.NearestFilter;
   elevMap.generateMipmaps = false;
-  stampCatalogIntoElevation(elevMap);
-  sampleElev = makeGraySampler(elevMap);
+  elevMap.wrapS = THREE.RepeatWrapping;
+  elevMap.needsUpdate = true;
+  sampleElev = makeElevSampler(elevField);
   sampleLights = nightMap ? makeGraySampler(nightMap) : null;
   // Lambert (not Basic): displacementMap is required for relief + flood shader.
   // Ambient-only lighting keeps land evenly bright with no directional sun.
@@ -1226,10 +1403,17 @@ async function buildGlobe() {
     new THREE.SphereGeometry(EARTH_RADIUS * 1.05, 64, 64),
     new THREE.MeshBasicMaterial({ color: 0x6eb6ff, transparent: true, opacity: 0.07, side: THREE.BackSide, depthWrite: false })
   ));
-  for (const item of LANDMARKS) entries.push(createMarker(item));
+  const beforeMarkers = performance.now();
+  for (const item of LANDMARKS) {
+    const entry = createMarker(item);
+    entries.push(entry);
+    entryById.set(item.id, entry);
+  }
+  loadTiming.markers = Math.round(performance.now() - beforeMarkers);
   setStatus("");
   applySeaLevel(Number(slider.value));
   rebuildList();
+  loadTiming.total = Math.round(performance.now() - buildStarted);
 }
 
 function clampSeaLevel(meters) {
@@ -1415,7 +1599,8 @@ canvas.addEventListener("pointermove", (event) => {
       globeDrag.moved = true;
       spinEarthByPointerDelta(dx, dy, event);
     }
-  } else if (activePointers.size === 2) {
+  } else if (activePointers.size === 2 && event.pointerType !== "touch") {
+    // Touch is handled by the touchmove listener below; running both rolled the globe twice.
     twistFromPointerMap(false);
   }
   const entry = pickPinUnderPointer(event);
@@ -1528,12 +1713,21 @@ window.__ww = {
   sea: () => seaLevelM,
   elev: (lat, lon) => elevMetersAt(lat, lon),
   screenOf: (id) => {
-    const entry = entries.find((e) => e.item.id === id);
+    const entry = entryById.get(id);
     if (!entry) return null;
     const p = entry.pin.getWorldPosition(new THREE.Vector3()).project(camera);
     const { w, h } = viewportSize();
     return { x: Math.round(((p.x + 1) / 2) * w), y: Math.round(((1 - p.y) / 2) * h), z: p.z };
   },
+  /** Pin colour vs label state for every place: the two used to disagree near sea level. */
+  timing: () => ({ ...loadTiming }),
+  states: () => entries.map((entry) => ({
+    id: entry.item.id,
+    name: entry.item.name,
+    floodElev: pinFloodElev(entry.item, entry.pose ? entry.pose.groundElev : entry.item.elev),
+    pinRed: entry.pin.material === pinMaterialFlooded,
+    labelRed: entry.el.classList.contains("is-flooded"),
+  })),
   pickAt: (x, y) => {
     const rect = canvas.getBoundingClientRect();
     pointerNdc.x = ((x - rect.left) / rect.width) * 2 - 1;

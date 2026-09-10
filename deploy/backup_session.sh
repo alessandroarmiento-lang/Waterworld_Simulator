@@ -73,7 +73,12 @@ if [[ "$dirty" -eq 1 ]]; then
       export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
       export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
     fi
-    git commit -m "Session backup $(date '+%Y-%m-%d %H:%M')" >>"$LOG" 2>&1 || true
+    # A refused commit used to pass in silence, and the push right after carried
+    # nothing: the session looked backed up while the work was still only local.
+    if ! git commit -m "Session backup $(date '+%Y-%m-%d %H:%M')" >>"$LOG" 2>&1; then
+      log "ERROR: commit refused — nothing was backed up (see $LOG)"
+      exit 1
+    fi
   fi
 fi
 
@@ -86,6 +91,7 @@ if git remote get-url origin >/dev/null 2>&1; then
   fi
   if ! git "${PUSH_HELPER[@]}" push origin HEAD >>"$LOG" 2>&1; then
     log "ERROR: git push failed — run: gh auth login"
+    exit 1
   else
     log "PUSH: ok"
     if [[ -x "$ROOT/deploy/land_on_main.sh" ]]; then

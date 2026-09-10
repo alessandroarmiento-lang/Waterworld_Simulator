@@ -12,7 +12,8 @@ This is **not** OSI “Open Source” (commercial use is forbidden).
 
 **Third-party data (own licenses):**
 
-- Elevation: GEBCO-derived texture via NASA Visible Earth
+- Elevation: [ETOPO 2022](https://www.ncei.noaa.gov/products/etopo-global-relief-model) (NOAA NCEI), public domain
+- Colour: NASA Blue Marble via [Visible Earth](https://visibleearth.nasa.gov/)
 - Cities: [GeoNames](https://www.geonames.org/) (CC BY 4.0) — population estimates
 - 3D: [three.js](https://threejs.org/) (MIT), vendored under `sea-level-sim/static/vendor/`
 

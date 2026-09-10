@@ -10,3 +10,5 @@ __pycache__/
 sea-level-sim/static/textures/gebco_elev_src.png
 sea-level-sim/.launcher.log
 *.iconset/
+sea-level-sim/static/textures/etopo_src.tif
+sea-level-sim/static/textures/bluemarble_src.jpg

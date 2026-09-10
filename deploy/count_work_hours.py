@@ -36,7 +36,17 @@ ISO_KEYS = ("timestamp", "createdAt", "created_at", "time")
 
 def parse_ts(raw: str) -> datetime | None:
     raw = raw.strip()
-    raw = re.sub(r"\s*\(UTC([+-]\d{1,2})(?::?(\d{2}))?\)\s*$", "", raw)
+    # Chat stamps read "… 2:14 AM (UTC+2)": that offset is what makes the wall clock
+    # meaningful. Dropping it and calling the result UTC moved sessions by two hours
+    # and pushed late-night work onto the wrong day.
+    offset = None
+    tz_match = re.search(r"\s*\(UTC([+-])(\d{1,2})(?::?(\d{2}))?\)\s*$", raw)
+    if tz_match:
+        sign = 1 if tz_match.group(1) == "+" else -1
+        hours = int(tz_match.group(2))
+        minutes = int(tz_match.group(3) or 0)
+        offset = timezone(sign * timedelta(hours=hours, minutes=minutes))
+        raw = raw[: tz_match.start()].strip()
     formats = (
         "%A, %b %d, %Y, %I:%M %p",
         "%A, %B %d, %Y, %I:%M %p",
@@ -49,7 +59,7 @@ def parse_ts(raw: str) -> datetime | None:
         try:
             dt = datetime.strptime(raw, fmt)
             if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.replace(tzinfo=offset or timezone.utc)
             return dt
         except ValueError:
             continue

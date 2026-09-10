@@ -36,7 +36,16 @@ const REF_ELEV_M = 9000;
 const ELEV_OFFSET_M = 500;
 const ELEV_STEP_M = 1;
 const MARKER_LIFT = 0.0015;
-const EARTH_SEGMENTS = 512;
+// iPhone Safari cannot hold an 8k float DEM + 8k colour + 512-segment sphere in WebGL
+// memory: the UI loads, the fetch finishes, then the globe never appears. Cap mesh and
+ // texture size on constrained devices; desktop keeps the full map.
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+  || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const IS_CONSTRAINED = IS_IOS
+  || (typeof navigator.deviceMemory === "number" && navigator.deviceMemory > 0 && navigator.deviceMemory <= 4)
+  || (navigator.maxTouchPoints > 1 && window.matchMedia("(pointer: coarse)").matches);
+const EARTH_SEGMENTS = IS_CONSTRAINED ? 256 : 512;
+const GPU_TEX_CAP = IS_CONSTRAINED ? 4096 : 8192;
 
 const filters = { peak: true, city: true, poi: true };
 let showGlobeLabels = true;
@@ -343,26 +352,77 @@ const loadTiming = {};
  * altitude read ~30% too high. Reading the bytes ourselves keeps metres exact and leaves
  * the browser no chance to reinterpret them.
  */
-async function loadElevationField(name) {
+async function loadElevationField(name, maxWidth = Infinity) {
   const started = performance.now();
+  setStatus("Scarico mappa quote…");
   const response = await fetch("/static/textures/" + name + "?v=" + TEXTURE_VERSION);
   if (!response.ok) throw new Error("Impossibile caricare " + name);
   const bytes = new Uint8Array(await response.arrayBuffer());
   loadTiming.fetch = Math.round(performance.now() - started);
+  setStatus(IS_IOS
+    ? "Decodifico DEM su iPhone (può richiedere un minuto)…"
+    : "Decodifico DEM…");
   const raster = await decodeGray16Png(bytes);
   const { width, height, samples } = raster;
   const beforeMetres = performance.now();
-  const metres = new Float32Array(width * height);
-  // Raster rows run north→south, WebGL samples v upwards: flip once, here.
-  for (let y = 0; y < height; y += 1) {
-    const src = y * width;
-    const dst = (height - 1 - y) * width;
-    for (let x = 0; x < width; x += 1) {
-      metres[dst + x] = samples[src + x] * ELEV_STEP_M - ELEV_OFFSET_M;
+  // Raster rows run north→south; WebGL samples v upwards. Flip while converting.
+  // On iPhone skip the full-size Float32Array (≈128 MB) or Safari kills WebGL.
+  if (width <= maxWidth) {
+    const metres = new Float32Array(width * height);
+    for (let y = 0; y < height; y += 1) {
+      const src = y * width;
+      const dst = (height - 1 - y) * width;
+      for (let x = 0; x < width; x += 1) {
+        metres[dst + x] = samples[src + x] * ELEV_STEP_M - ELEV_OFFSET_M;
+      }
+    }
+    loadTiming.metres = Math.round(performance.now() - beforeMetres);
+    return { width, height, metres };
+  }
+  const scale = width / maxWidth;
+  const outH = Math.max(1, Math.round(height / scale));
+  const metres = new Float32Array(maxWidth * outH);
+  for (let y = 0; y < outH; y += 1) {
+    const srcY = Math.min(height - 1, Math.floor((1 - (y + 0.5) / outH) * height));
+    for (let x = 0; x < maxWidth; x += 1) {
+      const srcX = Math.min(width - 1, Math.floor((x + 0.5) * scale));
+      metres[y * maxWidth + x] = samples[srcY * width + srcX] * ELEV_STEP_M - ELEV_OFFSET_M;
     }
   }
   loadTiming.metres = Math.round(performance.now() - beforeMetres);
-  return { width, height, metres };
+  return { width: maxWidth, height: outH, metres };
+}
+
+/** Shrink a metres field so it fits the GPU (and iPhone RAM). Nearest sample. */
+function constrainElevField(field, maxWidth) {
+  if (field.width <= maxWidth) return field;
+  const scale = field.width / maxWidth;
+  const height = Math.max(1, Math.round(field.height / scale));
+  const metres = new Float32Array(maxWidth * height);
+  for (let y = 0; y < height; y += 1) {
+    const sy = Math.min(field.height - 1, Math.floor((y + 0.5) * scale));
+    for (let x = 0; x < maxWidth; x += 1) {
+      const sx = Math.min(field.width - 1, Math.floor((x + 0.5) * scale));
+      metres[y * maxWidth + x] = field.metres[sy * field.width + sx];
+    }
+  }
+  return { width: maxWidth, height, metres };
+}
+
+/** Colour maps above maxTextureSize fail silently on Safari; redraw onto a canvas. */
+function constrainColorTexture(texture, maxWidth) {
+  const image = texture.image;
+  if (!image || !image.width || image.width <= maxWidth) return texture;
+  const height = Math.max(1, Math.round(image.height * (maxWidth / image.width)));
+  const canvasEl = document.createElement("canvas");
+  canvasEl.width = maxWidth;
+  canvasEl.height = height;
+  const ctx = canvasEl.getContext("2d");
+  if (!ctx) return texture;
+  ctx.drawImage(image, 0, 0, maxWidth, height);
+  texture.image = canvasEl;
+  texture.needsUpdate = true;
+  return texture;
 }
 
 async function decodeGray16Png(bytes) {
@@ -718,9 +778,21 @@ function selectWorldCity(city) {
   flyTo({ lat: city.lat, lon: city.lon, elev: elevM });
 }
 
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance", logarithmicDepthBuffer: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: !IS_CONSTRAINED,
+  alpha: true,
+  powerPreference: IS_IOS ? "default" : "high-performance",
+  // Logarithmic depth fails or blanks the scene on some iOS Safari GPUs.
+  logarithmicDepthBuffer: !IS_CONSTRAINED,
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, IS_CONSTRAINED ? 1.25 : 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+const GPU_TEX_MAX = Math.min(renderer.capabilities.maxTextureSize || 4096, GPU_TEX_CAP);
+canvas.addEventListener("webglcontextlost", (event) => {
+  event.preventDefault();
+  setStatus("WebGL interrotto (memoria). Ricarica la pagina.", "error");
+}, false);
 
 const labelRenderer = new CSS2DRenderer();
 labelRenderer.domElement.className = "label-layer";
@@ -1350,14 +1422,18 @@ function stampCatalogIntoElevation(field) {
 async function buildGlobe() {
   setStatus("Caricamento texture e luoghi…");
   const buildStarted = performance.now();
-  const [colorMap, elevField, nightMap] = await Promise.all([
+  const [colorMapRaw, elevFieldRaw, nightMap] = await Promise.all([
     loadTexture("earth.jpg", THREE.SRGBColorSpace),
-    loadElevationField("elevation.png"),
+    loadElevationField("elevation.png", GPU_TEX_MAX),
     loadTexture("earth-night.jpg", THREE.NoColorSpace).catch(() => null),
     loadCountries(),
     loadCities(),
   ]);
-  stampCatalogIntoElevation(elevField);
+  setStatus("Preparo il globo…");
+  const colorMap = constrainColorTexture(colorMapRaw, GPU_TEX_MAX);
+  if (nightMap) constrainColorTexture(nightMap, GPU_TEX_MAX);
+  stampCatalogIntoElevation(elevFieldRaw);
+  const elevField = constrainElevField(elevFieldRaw, GPU_TEX_MAX);
   // Metres straight to the GPU: nearest and no mipmaps, so the shader reads the same
   // single cell the pin and the click probe read.
   const elevMap = new THREE.DataTexture(
@@ -1739,5 +1815,6 @@ window.__ww = {
 };
 buildGlobe().catch((err) => {
   console.error(err);
-  setStatus("Errore nel caricamento delle texture. Avvia main.py almeno una volta con rete.", "error");
+  const detail = err && err.message ? String(err.message) : "errore sconosciuto";
+  setStatus("Errore nel caricamento: " + detail, "error");
 });

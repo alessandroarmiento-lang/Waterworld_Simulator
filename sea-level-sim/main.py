@@ -165,9 +165,11 @@ def index() -> FileResponse:
 
 
 def main() -> None:
+    # 0.0.0.0 so an iPhone on the same Wi‑Fi can open the Mac LAN IP and Add to Home Screen.
     print("\n  Waterworld Simulator 1.0 (offline)")
-    print("  Apri: http://127.0.0.1:8000\n")
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+    print("  Mac:     http://127.0.0.1:8000")
+    print("  iPhone:  http://<Mac-LAN-IP>:8000  (same Wi‑Fi → Safari → Add to Home Screen)\n")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
 
 
 if __name__ == "__main__":

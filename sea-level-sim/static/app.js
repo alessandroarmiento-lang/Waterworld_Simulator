@@ -905,8 +905,12 @@ function loadTexture(name, colorSpace) {
   });
 }
 
+// Four map reads per pixel instead of one buys the smooth waterline. The constrained
+// tier already renders a smaller map on a slower GPU, so there it keeps the single read.
+const ELEV_READ = IS_CONSTRAINED ? "texture2D( uElevMap, vElevUv ).x" : "elevBilinear( vElevUv )";
+
 function installFloodShader(material, elevTexture) {
-  material.customProgramCacheKey = () => "sea-flood-v25";
+  material.customProgramCacheKey = () => "sea-flood-v24-" + (IS_CONSTRAINED ? "nearest" : "bilinear");
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     // Own sampler: three exposes displacementMap to the vertex stage only.
@@ -964,7 +968,7 @@ function installFloodShader(material, elevTexture) {
       .replace(
         "#include <map_fragment>",
         `#include <map_fragment>
-         float elevM = elevBilinear( vElevUv );
+         float elevM = ${ELEV_READ};
          float landMask = smoothstep( 1.5, 22.0, elevM );
          if ( uSeaLevel > 1.0 ) {
            // Narrow transition: a wide antialias band let whole ranges read as dry land

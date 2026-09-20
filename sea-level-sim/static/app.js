@@ -848,12 +848,11 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 // Above the tallest displaced terrain (EARTH_RADIUS + DISP_SCALE + DISP_BIAS): no diving inside.
-// Tallest displaced terrain is about EARTH_RADIUS + DISP_SCALE + DISP_BIAS ≈ 2.14.
 controls.minDistance = 2.35;
 controls.maxDistance = 9.5;
-// Softer than the OrbitControls default: large trackpad deltas used to jump the range.
-controls.zoomSpeed = 0.7;
-// Pan/zoom move the camera; one-finger drag tumbles the Earth about its center.
+// Zoom is owned below: Safari trackpad pinch was fighting OrbitControls and snapping
+// between min and max. Pan stays on the controls; wheel / pinch / gesture do not.
+controls.enableZoom = false;
 controls.enableRotate = false;
 controls.enablePan = true;
 controls.screenSpacePanning = true;
@@ -875,8 +874,10 @@ let globeDrag = null;
 /** @type {{ angle: number } | null} */
 let twistSample = null;
 let gestureRotationDeg = 0;
-/** Scale at the last Safari gesture event; pinch zoom is progressive against this. */
-let gestureScale = 1;
+/** Camera distance when the Safari pinch gesture began; scale is absolute from there. */
+let gestureStartDist = 0;
+/** Two-finger touch pinch: finger span and camera distance at pinch start. */
+let touchPinch = null;
 
 scene.add(new THREE.AmbientLight(0xffffff, 3.05));
 // Nessun sole direzionale: le terre emerse restano chiare su tutto il globo.
@@ -1851,43 +1852,90 @@ canvas.addEventListener("pointerleave", () => {
   hidePinTooltip(hoverLandmarkId);
 });
 
-// Native touch (capture): reliable two-finger twist on phones / touchscreens.
+// Native touch (capture): two-finger twist + pinch zoom. OrbitControls zoom is off.
 canvas.addEventListener("touchstart", (event) => {
   if (event.touches.length >= 2) {
     globeDrag = null;
     twistFromTouchList(event.touches, true);
+    touchPinch = {
+      span: fingerSpan(event.touches[0], event.touches[1]),
+      dist: cameraDistance(),
+    };
   }
 }, { capture: true, passive: true });
 canvas.addEventListener("touchmove", (event) => {
-  if (event.touches.length >= 2) twistFromTouchList(event.touches, false);
+  if (event.touches.length < 2) return;
+  twistFromTouchList(event.touches, false);
+  if (!touchPinch || touchPinch.span < 1) return;
+  const span = fingerSpan(event.touches[0], event.touches[1]);
+  if (span < 1) return;
+  setCameraDistance(touchPinch.dist * (touchPinch.span / span));
 }, { capture: true, passive: true });
 canvas.addEventListener("touchend", (event) => {
-  if (event.touches.length < 2) twistSample = null;
-  else twistFromTouchList(event.touches, true);
+  if (event.touches.length < 2) {
+    twistSample = null;
+    touchPinch = null;
+  } else {
+    twistFromTouchList(event.touches, true);
+    touchPinch = {
+      span: fingerSpan(event.touches[0], event.touches[1]),
+      dist: cameraDistance(),
+    };
+  }
 }, { capture: true, passive: true });
-canvas.addEventListener("touchcancel", () => { twistSample = null; }, { capture: true, passive: true });
+canvas.addEventListener("touchcancel", () => {
+  twistSample = null;
+  touchPinch = null;
+}, { capture: true, passive: true });
 
 /**
- * Dolly the camera along the ray toward the orbit target. OrbitControls already owns
- * wheel and touch pinch; Safari trackpad pinch arrives only as a gesture* scale, and
- * without this the preventDefault below ate progressive zoom and left two extremes.
+ * Set the camera distance from the orbit target. OrbitControls zoom is off: Safari
+ * trackpad pinch used to fire both gesture* and wheel, and the two handlers yanked the
+ * camera to minDistance or maxDistance in one jump.
  */
-function dollyByFactor(factor) {
-  if (!Number.isFinite(factor) || factor <= 0 || Math.abs(factor - 1) < 1e-5) return;
+function setCameraDistance(distance) {
   const offset = camera.position.clone().sub(controls.target);
-  const distance = offset.length();
-  if (distance < 1e-6) return;
-  const next = THREE.MathUtils.clamp(distance / factor, controls.minDistance, controls.maxDistance);
-  offset.multiplyScalar(next / distance);
+  const current = offset.length();
+  if (current < 1e-6) return;
+  const next = THREE.MathUtils.clamp(distance, controls.minDistance, controls.maxDistance);
+  offset.multiplyScalar(next / current);
   camera.position.copy(controls.target).add(offset);
   controls.update();
 }
 
-// Safari / WebKit trackpad: rotation → flat roll, scale → progressive zoom.
+function cameraDistance() {
+  return camera.position.distanceTo(controls.target);
+}
+
+/** Soft per-event step for wheel / incremental zoom. Hard cap stops a single delta from leaping the range. */
+function dollyByFactor(factor) {
+  if (!Number.isFinite(factor) || factor <= 0) return;
+  const capped = THREE.MathUtils.clamp(factor, 1 / 1.07, 1.07);
+  if (Math.abs(capped - 1) < 1e-5) return;
+  setCameraDistance(cameraDistance() / capped);
+}
+
+function fingerSpan(a, b) {
+  const dx = a.clientX - b.clientX;
+  const dy = a.clientY - b.clientY;
+  return Math.hypot(dx, dy);
+}
+
+// Wheel and Chromium pinch-as-wheel (ctrl+wheel). Own handler: OrbitControls zoom is off.
+canvas.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  let dy = event.deltaY;
+  if (event.deltaMode === 1) dy *= 16;
+  if (event.deltaMode === 2) dy *= 100;
+  // Pixel deltas on a trackpad are large; keep each tick under ~7%.
+  dollyByFactor(Math.exp(-dy * 0.0012));
+}, { passive: false });
+
+// Safari / WebKit trackpad: rotation → flat roll; scale is absolute from gesture start.
 canvas.addEventListener("gesturestart", (event) => {
   event.preventDefault();
   gestureRotationDeg = 0;
-  gestureScale = 1;
+  gestureStartDist = cameraDistance();
   twistSample = null;
 }, { passive: false });
 canvas.addEventListener("gesturechange", (event) => {
@@ -1896,14 +1944,13 @@ canvas.addEventListener("gesturechange", (event) => {
   rollEarthFlat(((deg - gestureRotationDeg) * Math.PI) / 180);
   gestureRotationDeg = deg;
   const scale = Number(event.scale);
-  if (Number.isFinite(scale) && scale > 0) {
-    dollyByFactor(scale / gestureScale);
-    gestureScale = scale;
+  if (Number.isFinite(scale) && scale > 0.05 && gestureStartDist > 0) {
+    setCameraDistance(gestureStartDist / scale);
   }
 }, { passive: false });
 canvas.addEventListener("gestureend", () => {
   gestureRotationDeg = 0;
-  gestureScale = 1;
+  gestureStartDist = 0;
   twistSample = null;
 }, { passive: true });
 
@@ -1950,8 +1997,9 @@ window.__ww = {
   },
   timing: () => ({ ...loadTiming }),
   /** Camera distance from the orbit target; used to check that zoom steps stay progressive. */
-  camDist: () => camera.position.distanceTo(controls.target),
+  camDist: () => cameraDistance(),
   dolly: (factor) => dollyByFactor(factor),
+  setDist: (d) => setCameraDistance(d),
   placeProbe: (lat, lon) => placeProbe(lat, lon),
   /**
    * Click marker against the ground beneath it, in metres. Clearance must stay positive or

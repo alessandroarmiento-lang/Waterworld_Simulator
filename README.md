@@ -6,7 +6,7 @@ Offline sea-level globe simulator. **Public source**, **non-commercial**, with *
 
 **Run / controls:** [`sea-level-sim/README.md`](sea-level-sim/README.md)
 
-**License:** [LICENSE](LICENSE) — free for personal / educational / research use; **no commercial use**; credits must stay visible (see [`CREDITS.md`](CREDITS.md)).
+**License:** [ANCA 1.0](https://github.com/alessandroarmiento-lang/ANCA) ([LICENSE](LICENSE)) — free for personal / educational / research use; **no commercial use**; credits must stay visible (see [`CREDITS.md`](CREDITS.md)).
 
 This is **not** OSI “Open Source” (commercial use is forbidden).
 

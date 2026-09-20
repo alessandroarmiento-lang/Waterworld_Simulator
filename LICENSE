@@ -1,4 +1,4 @@
-Waterworld Simulator 1.0 Non-Commercial Attribution License
+Armiento Non-Commercial Attribution License 1.0 (ANCA 1.0)
 Copyright (c) 2026 Alessandro Armiento
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -15,9 +15,10 @@ to the following conditions:
    Any public presentation, redistribution, hosted copy, fork, or derivative
    of the Software MUST keep the author credits permanently visible in the
    primary user interface (not only in documentation or source files). The
-   required credits are defined in CREDITS.md and must remain at least as
-   clear as in the original application. Hiding them, making them optional,
-   or removing them is not permitted.
+   required credits are defined in CREDITS.md (or an equivalent credits file
+   in the licensed project) and must remain at least as clear as in the
+   original application. Hiding them, making them optional, or removing them
+   is not permitted.
 
 3. License text.
    The above copyright notice and this permission notice shall be included in
@@ -31,5 +32,5 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Third-party components and datasets bundled or downloaded by the Software
-retain their own licenses (see README.md and CREDITS.md).
+Third-party components and datasets bundled or downloaded by a project under
+this license retain their own licenses; see that project's README and credits.

@@ -8,6 +8,8 @@ Offline sea-level globe simulator. **Public source**, **non-commercial**, with *
 
 **License:** [ANCA 1.0](https://github.com/alessandroarmiento-lang/ANCA) ([LICENSE](LICENSE)) — free for personal / educational / research use; **no commercial use**; credits must stay visible (see [`CREDITS.md`](CREDITS.md)).
 
+**Language:** UI is Italian / English (IT · EN in the panel). Public clones default to **English**. A gitignored `sea-level-sim/static/owner-prefs.json` (`defaultLang: "it"`) keeps Italian on the author’s machine — see `owner-prefs.example.json`.
+
 This is **not** OSI “Open Source” (commercial use is forbidden).
 
 **Third-party data (own licenses):**

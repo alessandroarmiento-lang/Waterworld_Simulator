@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -11,7 +11,7 @@
     <link rel="manifest" href="/static/site.webmanifest" />
     <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png" />
-    <link rel="stylesheet" href="/static/style.css?v=18" />
+    <link rel="stylesheet" href="/static/style.css?v=19" />
     <script type="importmap">
       {
         "imports": {
@@ -24,80 +24,86 @@
   <body>
     <div id="app">
       <canvas id="globe"></canvas>
-      <button type="button" class="panel-toggle" id="panel-toggle" aria-controls="control-panel" aria-expanded="true">Nascondi controlli</button>
-      <aside id="control-panel" class="panel" aria-label="Controlli Waterworld Simulator 1.0">
+      <button type="button" class="panel-toggle" id="panel-toggle" aria-controls="control-panel" aria-expanded="true" data-i18n="panelToggleHide">Hide controls</button>
+      <aside id="control-panel" class="panel" data-i18n-aria="panelAria" aria-label="Waterworld Simulator 1.0 controls">
         <header>
-          <p class="eyebrow">Versione 1.0</p>
+          <div class="header-top">
+            <p class="eyebrow" data-i18n="version">Version 1.0</p>
+            <div class="lang-switch" role="group" data-i18n-aria="langAria" aria-label="Language">
+              <button type="button" data-lang="it" aria-pressed="false">IT</button>
+              <button type="button" data-lang="en" aria-pressed="true">EN</button>
+            </div>
+          </div>
           <h1>Waterworld Simulator</h1>
-          <p class="lede">
-            Globo offline con vette, città e punti di interesse (con altitudine).
-            Clicca un punto sulla mappa per quota, città e tipo di suolo.
+          <p class="lede" data-i18n="lede">
+            Offline globe with peaks, cities and points of interest (with elevation).
+            Click a map point for altitude, nearest city and ground type.
           </p>
         </header>
         <div class="slider-block">
           <div class="slider-label">
-            <label for="sea-slider">Livello del mare</label>
+            <label for="sea-slider" data-i18n="seaLevel">Sea level</label>
             <label class="sea-input-wrap" for="sea-input">
               <input id="sea-input" type="number" min="0" max="9000" step="1" value="0" inputmode="numeric" />
               <span>m</span>
             </label>
           </div>
-          <input id="sea-slider" type="range" min="0" max="9000" step="1" value="0" aria-label="Livello del mare (cursore)" />
+          <input id="sea-slider" type="range" min="0" max="9000" step="1" value="0" data-i18n-aria="seaSliderAria" aria-label="Sea level (slider)" />
           <span class="slider-ends"><span>0 m</span><span>9000 m</span></span>
         </div>
-        <div class="presets" role="group" aria-label="Scenari">
-          <button type="button" data-level="0">Attuale</button>
-          <button type="button" data-level="70">Ghiacci (+70 m)</button>
-          <button type="button" data-level="135">Ghiacci + falde (+135 m)</button>
-          <button type="button" data-level="2000">Alte montagne (+2000 m)</button>
-          <button type="button" data-level="5000">Solo grandi vette (+5000 m)</button>
-          <button type="button" data-level="8500">Solo ottomila (+8500 m)</button>
-          <button type="button" data-level="9000">Waterworld totale (+9000 m)</button>
+        <div class="presets" role="group" data-i18n-aria="presetsAria" aria-label="Scenarios">
+          <button type="button" data-level="0" data-i18n="preset0">Present day</button>
+          <button type="button" data-level="70" data-i18n="preset70">Ice sheets (+70 m)</button>
+          <button type="button" data-level="135" data-i18n="preset135">Ice + aquifers (+135 m)</button>
+          <button type="button" data-level="2000" data-i18n="preset2000">High mountains (+2000 m)</button>
+          <button type="button" data-level="5000" data-i18n="preset5000">Major peaks only (+5000 m)</button>
+          <button type="button" data-level="8500" data-i18n="preset8500">Eight-thousanders only (+8500 m)</button>
+          <button type="button" data-level="9000" data-i18n="preset9000">Total Waterworld (+9000 m)</button>
         </div>
         <label class="flag-row">
           <input id="show-globe-labels" type="checkbox" checked />
-          Etichette (nomi) sulla mappa 3D
+          <span data-i18n="globeLabels">Labels (names) on the 3D map</span>
         </label>
         <fieldset class="filters">
-          <legend>Quali punti sul globo</legend>
-          <label><input id="filter-peak" type="checkbox" checked /> Vette</label>
-          <label><input id="filter-city" type="checkbox" checked /> Città</label>
-          <label><input id="filter-poi" type="checkbox" checked /> Punti di interesse</label>
+          <legend data-i18n="filtersLegend">What to show on the globe</legend>
+          <label><input id="filter-peak" type="checkbox" checked /> <span data-i18n="filterPeak">Peaks</span></label>
+          <label><input id="filter-city" type="checkbox" checked /> <span data-i18n="filterCity">Cities</span></label>
+          <label><input id="filter-poi" type="checkbox" checked /> <span data-i18n="filterPoi">Points of interest</span></label>
         </fieldset>
         <label class="rotate-row">
           <input id="rotate-globe" type="checkbox" checked />
-          Rotazione automatica
+          <span data-i18n="autoRotate">Auto-rotate</span>
         </label>
-        <div class="gestures" aria-label="Gesture">
-          <p class="gestures-title">Gesture</p>
+        <div class="gestures" data-i18n-aria="gesturesTitle" aria-label="Gestures">
+          <p class="gestures-title" data-i18n="gesturesTitle">Gestures</p>
           <ul>
-            <li><span>1 dito</span> giro est-ovest + inclinazione nord-sud (Nord resta in alto)</li>
-            <li><span>2 dita trascina</span> sposta (pan)</li>
-            <li><span>2 dita pinch</span> zoom</li>
-            <li><span>2 dita torsione</span> orario / antiorario (piano)</li>
-            <li><span>Shift + trascina</span> stesso roll (trackpad / mouse)</li>
-            <li><span>Verde</span> emerso · <span>Rosso</span> sommerso</li>
-            <li><span>Clic</span> quota, città, terreno</li>
+            <li><span data-i18n="gesture1Label">1 finger</span> <span data-i18n="gesture1">east–west spin + north–south tilt (North stays up)</span></li>
+            <li><span data-i18n="gesture2Label">2-finger drag</span> <span data-i18n="gesture2">pan</span></li>
+            <li><span data-i18n="gesture3Label">2-finger pinch</span> <span data-i18n="gesture3">zoom</span></li>
+            <li><span data-i18n="gesture4Label">2-finger twist</span> <span data-i18n="gesture4">clockwise / counter-clockwise (flat roll)</span></li>
+            <li><span data-i18n="gesture5Label">Shift + drag</span> <span data-i18n="gesture5">same roll (trackpad / mouse)</span></li>
+            <li><span data-i18n="gesture6Green">Green</span> <span data-i18n="gesture6Rest">emerged ·</span> <span data-i18n="gesture6Red">Red</span> <span data-i18n="gesture6End">submerged</span></li>
+            <li><span data-i18n="gesture7Label">Click</span> <span data-i18n="gesture7">altitude, city, terrain</span></li>
           </ul>
         </div>
         <form class="search-block" id="landmark-search-form">
-          <label for="landmark-search">Cerca luogo</label>
-          <input id="landmark-search" type="search" placeholder="Es. Legnano — Invio per inquadrare" autocomplete="off" />
+          <label for="landmark-search" data-i18n="searchLabel">Search place</label>
+          <input id="landmark-search" type="search" data-i18n-placeholder="searchPlaceholder" placeholder="e.g. Legnano — Enter to frame" autocomplete="off" />
         </form>
-        <div id="landmark-list" class="landmark-list" aria-label="Elenco luoghi"></div>
-        <p class="note">
-          Ogni luogo mostra la quota. Oltre +135 m lo scenario è narrativo / non scientifico.
+        <div id="landmark-list" class="landmark-list" data-i18n-aria="listAria" aria-label="Place list"></div>
+        <p class="note" data-i18n="note">
+          Every place shows elevation. Above +135 m the scenario is narrative / not scientific.
         </p>
       </aside>
       <div id="selected-landmark" class="selected selection-float" hidden></div>
-      <footer class="credits" aria-label="Credits">
+      <footer class="credits" data-i18n-aria="creditsAria" aria-label="Credits">
         <strong>Waterworld Simulator 1.0</strong>
-        <span>© Alessandro Armiento · Non-commercial use only</span>
-        <span class="credits-data">Data: ETOPO 2022 (NOAA) / NASA · GeoNames · three.js</span>
+        <span data-i18n="creditsCopy">© Alessandro Armiento · Non-commercial use only</span>
+        <span class="credits-data" data-i18n="creditsData">Data: ETOPO 2022 (NOAA) / NASA · GeoNames · three.js</span>
       </footer>
       <div id="status" class="status" hidden></div>
       <div id="pin-tooltip" class="pin-tooltip" hidden role="tooltip"></div>
     </div>
-    <script type="module" src="/static/app.js?v=87"></script>
+    <script type="module" src="/static/app.js?v=88"></script>
   </body>
 </html>

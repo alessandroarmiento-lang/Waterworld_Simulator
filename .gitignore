@@ -12,3 +12,5 @@ sea-level-sim/.launcher.log
 *.iconset/
 sea-level-sim/static/textures/etopo_src.tif
 sea-level-sim/static/textures/bluemarble_src.jpg
+# Author-only UI prefs (Italian default). Public clones have no file → English.
+sea-level-sim/static/owner-prefs.json

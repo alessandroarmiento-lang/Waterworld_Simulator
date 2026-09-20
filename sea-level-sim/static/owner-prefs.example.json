@@ -1,0 +1,4 @@
+{
+  "defaultLang": "en",
+  "_comment": "Copy to owner-prefs.json (gitignored) and set defaultLang to \"it\" on the author's machine. Public checkouts keep English."
+}

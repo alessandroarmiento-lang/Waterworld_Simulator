@@ -5,6 +5,7 @@ import { LANDMARKS, TYPE_META } from "./landmarks.js?v=9";
 import { loadCountries, lookupCountry, oceanBasin } from "./country-lookup.js?v=1";
 import { loadCities, nearestCity, searchCities } from "./cities-lookup.js?v=2";
 import { lookupMountainRange } from "./mountain-ranges.js?v=1";
+import { initI18n, t, localeTag, getLang, applyStaticI18n } from "./i18n.js?v=1";
 
 const canvas = document.getElementById("globe");
 const appRoot = document.getElementById("app");
@@ -114,10 +115,29 @@ function setStatus(message, kind = "info") {
   if (!message) { statusEl.hidden = true; statusEl.textContent = ""; return; }
   statusEl.hidden = false; statusEl.dataset.kind = kind; statusEl.textContent = message;
 }
-function formatElev(meters) { return Math.round(meters).toLocaleString("it-IT") + " m"; }
+function formatElev(meters) { return Math.round(meters).toLocaleString(localeTag()) + " m"; }
 function formatSea(meters) {
   const rounded = Math.round(meters);
-  return rounded === 0 ? "0 m" : "+" + rounded.toLocaleString("it-IT") + " m";
+  return rounded === 0 ? "0 m" : "+" + rounded.toLocaleString(localeTag()) + " m";
+}
+function typeLabel(type) {
+  if (type === "peak") return t("peakKind");
+  if (type === "city") return t("cityKind");
+  if (type === "poi") return t("poiKind");
+  return TYPE_META[type]?.label || type;
+}
+function coverLabel(cover) {
+  const map = {
+    ocean: "coverOcean",
+    flooded_land: "coverFloodedLand",
+    settled: "coverSettled",
+    sparse: "coverSparse",
+    ice: "coverIce",
+    high: "coverHigh",
+    hill: "coverHill",
+    terrain: "coverTerrain",
+  };
+  return t(map[cover] || "coverTerrain");
 }
 function heightOffset(meters) {
   const h = THREE.MathUtils.clamp(meters / REF_ELEV_M, 0, 1.15);
@@ -255,9 +275,9 @@ function floodState(elevM) {
 }
 function floodLabel(elevM) {
   const state = floodState(elevM);
-  if (state === "flooded") return "sommerso";
-  if (state === "risk") return "a rischio";
-  return "emerso";
+  if (state === "flooded") return t("flooded");
+  if (state === "risk") return t("risk");
+  return t("dry");
 }
 function vecToLatLon(local) {
   const n = local.clone().normalize();
@@ -367,14 +387,12 @@ const loadTiming = {};
  */
 async function loadElevationField(name, maxWidth = Infinity) {
   const started = performance.now();
-  setStatus("Scarico mappa quote…");
+  setStatus(t("statusFetchElev"));
   const response = await fetch("/static/textures/" + name + "?v=" + TEXTURE_VERSION);
   if (!response.ok) throw new Error("Impossibile caricare " + name);
   const bytes = new Uint8Array(await response.arrayBuffer());
   loadTiming.fetch = Math.round(performance.now() - started);
-  setStatus(IS_IOS
-    ? "Decodifico DEM su iPhone (può richiedere un minuto)…"
-    : "Decodifico DEM…");
+  setStatus(IS_IOS ? t("statusDecodeIos") : t("statusDecode"));
   const raster = await decodeGray16Png(bytes);
   const { width, height, samples } = raster;
   const beforeMetres = performance.now();
@@ -639,24 +657,24 @@ function describePoint(lat, lon) {
   const basin = oceanBasin(lat, lon);
   let cover;
   if (elevM < Math.max(seaLevelM, 0.5)) {
-    cover = elevM < 1 && seaLevelM < 1 ? "mare / oceano" : "terra sommersa";
+    cover = elevM < 1 && seaLevelM < 1 ? "ocean" : "flooded_land";
   } else if (lights >= 48) {
-    cover = "zona abitata";
+    cover = "settled";
   } else if (lights >= 16) {
-    cover = "abitazioni sparse";
+    cover = "sparse";
   } else if (Math.abs(lat) > 66 && elevM > 80) {
-    cover = "ghiaccio polare";
+    cover = "ice";
   } else if (elevM >= 2500) {
-    cover = "alta montagna / altopiano";
+    cover = "high";
   } else if (elevM >= 800) {
-    cover = "collina / rilievo";
+    cover = "hill";
   } else {
-    cover = "terreno";
+    cover = "terrain";
   }
   let mountainRange = null;
   const mountainLike = elevM >= 800
-    || cover === "alta montagna / altopiano"
-    || cover === "collina / rilievo"
+    || cover === "high"
+    || cover === "hill"
     || (peak && peak.km <= 40);
   if (mountainLike) {
     if (peak && peak.km <= 55 && peak.item.range) {
@@ -684,14 +702,14 @@ function describePoint(lat, lon) {
  * exact figure is unknown and the line says so.
  */
 function depthOrHeightLine(elevM) {
-  if (elevM >= 0) return "Altitudine: <strong>" + formatElev(elevM) + "</strong> s.l.m.<br>";
+  if (elevM >= 0) return t("elevLine", { v: formatElev(elevM) });
   const depth = formatElev(-elevM);
-  if (elevM > ELEV_FLOOR_M) return "Profondità: <strong>" + depth + "</strong> sotto il livello del mare<br>";
-  return "Profondità: <strong>oltre " + depth + "</strong> sotto il livello del mare<br>";
+  if (elevM > ELEV_FLOOR_M) return t("depthLine", { v: depth });
+  return t("depthOverLine", { v: depth });
 }
 function formatCoords(lat, lon) {
   const ns = lat >= 0 ? "N" : "S";
-  const ew = lon >= 0 ? "E" : "O";
+  const ew = lon >= 0 ? t("ewEast") : t("ewWest");
   return Math.abs(lat).toFixed(2) + "° " + ns + " · " + Math.abs(lon).toFixed(2) + "° " + ew;
 }
 function geographyLine(info) {
@@ -699,14 +717,14 @@ function geographyLine(info) {
     const cont = info.country.continent ? " · " + info.country.continent : "";
     return "<strong>" + info.country.name + "</strong>" + cont;
   }
-  if (info.cover === "mare / oceano" || (info.elevM < 1 && !info.country)) {
-    return "<strong>" + (info.basin || "Mare aperto") + "</strong> · acque internazionali / al largo";
+  if (info.cover === "ocean" || (info.elevM < 1 && !info.country)) {
+    return "<strong>" + (info.basin || t("openSea")) + "</strong> · " + t("intlWaters");
   }
-  return "<strong>" + (info.basin || "Area non classificata") + "</strong>";
+  return "<strong>" + (info.basin || t("unclassified")) + "</strong>";
 }
 function formatKm(km) {
   if (km < 1) return Math.round(km * 1000) + " m";
-  return km.toLocaleString("it-IT", { maximumFractionDigits: km < 10 ? 1 : 0 }) + " km";
+  return km.toLocaleString(localeTag(), { maximumFractionDigits: km < 10 ? 1 : 0 }) + " km";
 }
 function foldText(value) {
   return (value || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -736,13 +754,13 @@ function rankedSearchMatches(query) {
     if (landmarkNames.has(folded)) continue;
     scored.push({ kind: "city", city, score: city.score, sortName: city.name });
   }
-  scored.sort((a, b) => b.score - a.score || a.sortName.localeCompare(b.sortName, "it"));
+  scored.sort((a, b) => b.score - a.score || a.sortName.localeCompare(b.sortName, getLang()));
   return scored;
 }
 function goToSearchMatch() {
   const matches = rankedSearchMatches(searchEl.value);
   if (!matches.length) {
-    setStatus("Nessun luogo trovato per questa ricerca.");
+    setStatus(t("noSearch"));
     return;
   }
   setStatus("");
@@ -763,7 +781,7 @@ function placeSearchMarker(city, elevM) {
   el.type = "button";
   el.className = "landmark-label landmark-city is-selected search-result-label";
   el.innerHTML = '<span class="dot">●</span><span class="txt">' + city.name + '</span><span class="elev">≈ '
-    + city.pop.toLocaleString("it-IT") + " ab.</span>";
+    + city.pop.toLocaleString(localeTag()) + " " + t("ab") + "</span>";
   el.addEventListener("click", (event) => {
     event.stopPropagation();
     selectWorldCity(city);
@@ -815,7 +833,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 const GPU_TEX_MAX = Math.min(renderer.capabilities.maxTextureSize || 4096, GPU_TEX_CAP);
 canvas.addEventListener("webglcontextlost", (event) => {
   event.preventDefault();
-  setStatus("WebGL interrotto (memoria). Ricarica la pagina.", "error");
+  setStatus(t("statusWebgl"), "error");
 }, false);
 
 const labelRenderer = new CSS2DRenderer();
@@ -906,7 +924,7 @@ function loadTexture(name, colorSpace) {
       texture.colorSpace = colorSpace;
       texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
       resolve(texture);
-    }, undefined, () => reject(new Error("Impossibile caricare " + name)));
+    }, undefined, () => reject(new Error(t("errLoad", { name }))));
   });
 }
 
@@ -1056,8 +1074,8 @@ function landmarkTooltipHtml(item) {
   const meta = TYPE_META[item.type];
   const state = floodLabel(itemFloodElev(item));
   let html = "<strong>" + item.name + "</strong>"
-    + '<div class="tt-meta">' + meta.label + " · " + formatElev(item.elev) + " · " + state + "</div>";
-  if (item.range) html += '<div class="tt-meta">Catena: ' + item.range + "</div>";
+    + '<div class="tt-meta">' + typeLabel(item.type) + " · " + formatElev(item.elev) + " · " + state + "</div>";
+  if (item.range) html += '<div class="tt-meta">' + t("rangeColon") + " " + item.range + "</div>";
   if (item.note) html += '<div class="tt-note">' + item.note + "</div>";
   return html;
 }
@@ -1155,14 +1173,14 @@ function rebuildList() {
         const meta = TYPE_META[item.type];
         const floodElev = itemFloodElev(item);
         btn.className = "landmark-item" + (item.id === selectedId ? " active" : "");
-        btn.innerHTML = '<span class="kind" style="color:' + meta.color + '">' + meta.short + '</span><span class="body"><strong>' + item.name + '</strong><small>' + meta.label + " · " + formatElev(item.elev) + ' · <em class="flood-' + floodState(floodElev) + '">' + floodLabel(floodElev) + "</em></small></span>";
+        btn.innerHTML = '<span class="kind" style="color:' + meta.color + '">' + meta.short + '</span><span class="body"><strong>' + item.name + '</strong><small>' + typeLabel(item.type) + " · " + formatElev(item.elev) + ' · <em class="flood-' + floodState(floodElev) + '">' + floodLabel(floodElev) + "</em></small></span>";
         btn.addEventListener("click", () => selectLandmark(item.id, true));
         trackListFlood(btn, floodElev);
       } else {
         const city = match.city;
         const elevM = elevMetersAt(city.lat, city.lon);
         btn.className = "landmark-item";
-        btn.innerHTML = '<span class="kind" style="color:#7ec8ff">●</span><span class="body"><strong>' + city.name + '</strong><small>Città · ≈ ' + city.pop.toLocaleString("it-IT") + " ab. (GeoNames) · " + formatElev(elevM) + ' · <em class="flood-' + floodState(elevM) + '">' + floodLabel(elevM) + "</em></small></span>";
+        btn.innerHTML = '<span class="kind" style="color:#7ec8ff">●</span><span class="body"><strong>' + city.name + '</strong><small>' + t("cityKind") + " · ≈ " + city.pop.toLocaleString(localeTag()) + " " + t("ab") + " (GeoNames) · " + formatElev(elevM) + ' · <em class="flood-' + floodState(elevM) + '">' + floodLabel(elevM) + "</em></small></span>";
         btn.addEventListener("click", () => selectWorldCity(city));
         trackListFlood(btn, elevM);
       }
@@ -1177,7 +1195,7 @@ function rebuildList() {
     const floodElev = itemFloodElev(item);
     btn.type = "button";
     btn.className = "landmark-item" + (item.id === selectedId ? " active" : "");
-    btn.innerHTML = '<span class="kind" style="color:' + meta.color + '">' + meta.short + '</span><span class="body"><strong>' + item.name + '</strong><small>' + meta.label + " · " + formatElev(item.elev) + ' · <em class="flood-' + floodState(floodElev) + '">' + floodLabel(floodElev) + "</em></small></span>";
+    btn.innerHTML = '<span class="kind" style="color:' + meta.color + '">' + meta.short + '</span><span class="body"><strong>' + item.name + '</strong><small>' + typeLabel(item.type) + " · " + formatElev(item.elev) + ' · <em class="flood-' + floodState(floodElev) + '">' + floodLabel(floodElev) + "</em></small></span>";
     btn.addEventListener("click", () => selectLandmark(item.id, true));
     trackListFlood(btn, floodElev);
     listEl.appendChild(btn);
@@ -1277,43 +1295,44 @@ function renderProbe(info) {
   const state = floodState(info.elevM);
   const title = info.placeName
     || (info.country && info.country.name)
-    || (info.cover === "mare / oceano" ? (info.basin || "Mare") : info.cover);
+    || (info.cover === "ocean" ? (info.basin || t("openSea")) : coverLabel(info.cover));
   const geo = geographyLine(info);
   let place = "";
   if (info.worldCity && info.worldCity.km <= 12) {
-    place = '<p class="sel-note">Città: <strong>' + info.worldCity.name + "</strong>"
-      + " · ≈ " + info.worldCity.pop.toLocaleString("it-IT") + " ab. (GeoNames)</p>";
+    place = '<p class="sel-note">' + t("cityColon") + " <strong>" + info.worldCity.name + "</strong>"
+      + " · ≈ " + info.worldCity.pop.toLocaleString(localeTag()) + " " + t("ab") + " (GeoNames)</p>";
   } else if (info.worldCity) {
-    place = '<p class="sel-note">Città più vicina: <strong>' + info.worldCity.name + "</strong> ("
-      + formatKm(info.worldCity.km) + ") · ≈ " + info.worldCity.pop.toLocaleString("it-IT") + " ab. (GeoNames)</p>";
+    place = '<p class="sel-note">' + t("nearestCityColon") + " <strong>" + info.worldCity.name + "</strong> ("
+      + formatKm(info.worldCity.km) + ") · ≈ " + info.worldCity.pop.toLocaleString(localeTag()) + " " + t("ab") + " (GeoNames)</p>";
   } else if (info.city && info.city.km <= 12) {
-    place = '<p class="sel-note">Città: <strong>' + info.city.item.name + "</strong>"
+    place = '<p class="sel-note">' + t("cityColon") + " <strong>" + info.city.item.name + "</strong>"
       + (info.city.item.note ? " — " + info.city.item.note : "") + "</p>";
   } else if (info.city) {
-    place = '<p class="sel-note">Città più vicina: <strong>' + info.city.item.name + "</strong> (" + formatKm(info.city.km) + ")"
+    place = '<p class="sel-note">' + t("nearestCityColon") + " <strong>" + info.city.item.name + "</strong> (" + formatKm(info.city.km) + ")"
       + (info.city.item.note ? " — " + info.city.item.note : "") + "</p>";
   }
   let nearby = "";
   if (info.nearby && (!info.city || info.nearby.item.id !== info.city.item.id) && info.nearby.km <= 25) {
-    const meta = TYPE_META[info.nearby.item.type];
-    nearby = '<p class="sel-note">Nel catalogo vicino: ' + meta.label.toLowerCase() + " <strong>" + info.nearby.item.name + "</strong> (" + formatKm(info.nearby.km) + ")</p>";
+    nearby = '<p class="sel-note">' + t("nearbyCatalog") + " " + typeLabel(info.nearby.item.type).toLowerCase()
+      + " <strong>" + info.nearby.item.name + "</strong> (" + formatKm(info.nearby.km) + ")</p>";
   }
   let rangeLine = "";
   if (info.mountainRange) {
-    rangeLine = '<p class="sel-note">Catena montuosa: <strong>' + info.mountainRange.name + "</strong>";
+    rangeLine = '<p class="sel-note">' + t("range") + " <strong>" + info.mountainRange.name + "</strong>";
     if (info.mountainRange.peak && info.mountainRange.km != null && info.mountainRange.km > 2) {
-      rangeLine += " (vicino a " + info.mountainRange.peak + ", " + formatKm(info.mountainRange.km) + ")";
+      rangeLine += " (" + t("nearTo") + " " + info.mountainRange.peak + ", " + formatKm(info.mountainRange.km) + ")";
     }
     rangeLine += "</p>";
   }
-  let floodLine = '<p class="sel-flood flood-' + state + '">Con mare a ' + formatSea(seaLevelM) + ': <strong>' + floodLabel(info.elevM) + "</strong></p>";
-  if (info.cover === "mare / oceano" && seaLevelM < 1) {
-    floodLine = '<p class="sel-note">Mare attuale (quota 0).</p>';
+  let floodLine = '<p class="sel-flood flood-' + state + '">' + t("withSea", { sea: formatSea(seaLevelM) })
+    + " <strong>" + floodLabel(info.elevM) + "</strong></p>";
+  if (info.cover === "ocean" && seaLevelM < 1) {
+    floodLine = '<p class="sel-note">' + t("seaNow") + "</p>";
   }
   selectedEl.hidden = false;
-  selectedEl.innerHTML = '<p class="sel-kicker">Punto sulla mappa</p><h2>' + title + "</h2>"
-    + '<p class="sel-meta">Dove: ' + geo + "<br>"
-    + "Tipo suolo: <strong>" + info.cover + "</strong><br>"
+  selectedEl.innerHTML = '<p class="sel-kicker">' + t("pointOnMap") + "</p><h2>" + title + "</h2>"
+    + '<p class="sel-meta">' + t("where") + " " + geo + "<br>"
+    + t("soilType") + " <strong>" + coverLabel(info.cover) + "</strong><br>"
     + depthOrHeightLine(info.elevM)
     + formatCoords(info.lat, info.lon) + "</p>"
     + rangeLine + place + nearby + floodLine;
@@ -1463,15 +1482,15 @@ function renderSelection(id) {
     if (region) rangeName = region.name;
   }
   let geo = "";
-  if (country) geo += "Paese: <strong>" + country.name + "</strong>" + (country.continent ? " · " + country.continent : "") + "<br>";
-  if (rangeName) geo += "Catena montuosa: <strong>" + rangeName + "</strong><br>";
+  if (country) geo += t("country") + " <strong>" + country.name + "</strong>" + (country.continent ? " · " + country.continent : "") + "<br>";
+  if (rangeName) geo += t("range") + " <strong>" + rangeName + "</strong><br>";
   selectedEl.hidden = false;
-  selectedEl.innerHTML = '<p class="sel-kicker" style="color:' + meta.color + '">' + meta.label + '</p><h2>' + item.name + "</h2>"
+  selectedEl.innerHTML = '<p class="sel-kicker" style="color:' + meta.color + '">' + typeLabel(item.type) + '</p><h2>' + item.name + "</h2>"
     + '<p class="sel-meta">' + geo
-    + "Altitudine: <strong>" + formatElev(item.elev) + "</strong> s.l.m.<br>"
+    + t("elevLine", { v: formatElev(item.elev) })
     + formatCoords(item.lat, item.lon) + "</p>"
     + '<p class="sel-note">' + (item.note || "") + "</p>"
-    + '<p class="sel-flood flood-' + state + '">Con mare a ' + formatSea(seaLevelM) + ': <strong>' + floodLabel(floodElev) + "</strong></p>";
+    + '<p class="sel-flood flood-' + state + '">' + t("withSea", { sea: formatSea(seaLevelM) }) + " <strong>" + floodLabel(floodElev) + "</strong></p>";
 }
 
 function flyTo(item) {
@@ -1551,7 +1570,7 @@ function stampCatalogIntoElevation(field) {
 }
 
 async function buildGlobe() {
-  setStatus("Caricamento texture e luoghi…");
+  setStatus(t("statusLoadTex"));
   const buildStarted = performance.now();
   const [colorMapRaw, elevFieldRaw, nightMap] = await Promise.all([
     loadTexture("earth.jpg", THREE.SRGBColorSpace),
@@ -1560,7 +1579,7 @@ async function buildGlobe() {
     loadCountries(),
     loadCities(),
   ]);
-  setStatus("Preparo il globo…");
+  setStatus(t("statusPrep"));
   const colorMap = constrainColorTexture(colorMapRaw, GPU_TEX_MAX);
   if (nightMap) constrainColorTexture(nightMap, GPU_TEX_MAX);
   stampCatalogIntoElevation(elevFieldRaw);
@@ -1958,7 +1977,7 @@ if (panelToggleEl) {
   panelToggleEl.addEventListener("click", () => {
     const collapsed = document.body.classList.toggle("panel-collapsed");
     panelToggleEl.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    panelToggleEl.textContent = collapsed ? "Mostra controlli" : "Nascondi controlli";
+    panelToggleEl.textContent = collapsed ? t("panelToggleShow") : t("panelToggleHide");
   });
 }
 
@@ -2042,8 +2061,21 @@ window.__ww = {
     return picked ? { lat: picked.lat, lon: picked.lon, elev: elevMetersAt(picked.lat, picked.lon) } : null;
   },
 };
-buildGlobe().catch((err) => {
-  console.error(err);
-  const detail = err && err.message ? String(err.message) : "errore sconosciuto";
-  setStatus("Errore nel caricamento: " + detail, "error");
+document.addEventListener("ww-langchange", () => {
+  rebuildList();
+  refreshFloodUI();
+  if (probeInfo) renderProbe(probeInfo);
+  else if (selectedId) renderSelection(selectedId);
+  applyStaticI18n();
 });
+
+(async () => {
+  await initI18n();
+  try {
+    await buildGlobe();
+  } catch (err) {
+    console.error(err);
+    const detail = err && err.message ? String(err.message) : t("unknownError");
+    setStatus(t("loadError", { detail }), "error");
+  }
+})();

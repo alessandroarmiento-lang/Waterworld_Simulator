@@ -840,7 +840,7 @@ function resizeGlobe() {
 }
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.FogExp2(0x061018, 0.035);
+scene.fog = new THREE.FogExp2(0x061018, 0.022);
 const camera = new THREE.PerspectiveCamera(45, 1, 0.008, 100);
 camera.position.set(0.6, 1.1, 5.2);
 resizeGlobe();
@@ -848,9 +848,11 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 // Above the tallest displaced terrain (EARTH_RADIUS + DISP_SCALE + DISP_BIAS): no diving inside.
-controls.minDistance = 2.17;
-controls.maxDistance = 16;
-controls.zoomSpeed = 1.15;
+// Tallest displaced terrain is about EARTH_RADIUS + DISP_SCALE + DISP_BIAS ≈ 2.14.
+controls.minDistance = 2.35;
+controls.maxDistance = 9.5;
+// Softer than the OrbitControls default: large trackpad deltas used to jump the range.
+controls.zoomSpeed = 0.7;
 // Pan/zoom move the camera; one-finger drag tumbles the Earth about its center.
 controls.enableRotate = false;
 controls.enablePan = true;
@@ -873,8 +875,10 @@ let globeDrag = null;
 /** @type {{ angle: number } | null} */
 let twistSample = null;
 let gestureRotationDeg = 0;
+/** Scale at the last Safari gesture event; pinch zoom is progressive against this. */
+let gestureScale = 1;
 
-scene.add(new THREE.AmbientLight(0xffffff, 2.1));
+scene.add(new THREE.AmbientLight(0xffffff, 3.05));
 // Nessun sole direzionale: le terre emerse restano chiare su tutto il globo.
 
 const starGeo = new THREE.BufferGeometry();
@@ -910,7 +914,7 @@ function loadTexture(name, colorSpace) {
 const ELEV_READ = IS_CONSTRAINED ? "texture2D( uElevMap, vElevUv ).x" : "elevBilinear( vElevUv )";
 
 function installFloodShader(material, elevTexture) {
-  material.customProgramCacheKey = () => "sea-flood-v24-" + (IS_CONSTRAINED ? "nearest" : "bilinear");
+  material.customProgramCacheKey = () => "sea-flood-v27-" + (IS_CONSTRAINED ? "nearest" : "bilinear");
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uSeaLevel = { value: seaLevelM };
     // Own sampler: three exposes displacementMap to the vertex stage only.
@@ -977,21 +981,26 @@ function installFloodShader(material, elevTexture) {
            float above = ( elevM - uSeaLevel ) / aa;
            float dryAmt = smoothstep( -0.5, 0.5, above );
            float depthM = max( 0.0, uSeaLevel - elevM );
-           vec3 landLit = min( diffuseColor.rgb * vec3( 1.70, 1.48, 1.15 ), vec3( 1.0 ) );
-           landLit = mix( landLit, landLit * vec3( 1.15, 1.06, 0.86 ), 0.4 );
+           vec3 landLit = min( diffuseColor.rgb * vec3( 1.95, 1.72, 1.28 ), vec3( 1.0 ) );
+           landLit = mix( landLit, landLit * vec3( 1.18, 1.10, 0.88 ), 0.35 );
            if ( elevM < 2.0 ) {
-             diffuseColor.rgb = vec3( 0.012, 0.06, 0.18 );
+             diffuseColor.rgb = vec3( 0.02, 0.10, 0.28 );
            } else {
-             vec3 water = mix( vec3( 0.06, 0.30, 0.48 ), vec3( 0.012, 0.06, 0.18 ), smoothstep( 8.0, 260.0, depthM ) );
-             vec3 drowned = mix( diffuseColor.rgb * vec3( 0.20, 0.38, 0.58 ), water, 0.82 );
-             drowned *= 0.65;
-             vec3 shore = vec3( 1.0, 0.92, 0.42 );
+             vec3 water = mix( vec3( 0.08, 0.38, 0.58 ), vec3( 0.02, 0.10, 0.28 ), smoothstep( 8.0, 260.0, depthM ) );
+             vec3 drowned = mix( diffuseColor.rgb * vec3( 0.28, 0.48, 0.68 ), water, 0.72 );
+             drowned *= 0.78;
+             vec3 shore = vec3( 1.0, 0.94, 0.48 );
              float rim = dryAmt * ( 1.0 - dryAmt ) * 4.0;
-             drowned = mix( drowned, shore, clamp( rim, 0.0, 1.0 ) * 0.6 );
+             drowned = mix( drowned, shore, clamp( rim, 0.0, 1.0 ) * 0.55 );
              diffuseColor.rgb = mix( drowned, landLit, dryAmt );
            }
          } else {
-           diffuseColor.rgb = mix( diffuseColor.rgb, diffuseColor.rgb * vec3( 1.18, 1.08, 0.90 ), landMask * 0.4 );
+           // Current sea: lift midtones and a touch of saturation so land and shallow
+           // bathymetry read clearer than the raw Blue Marble JPEG.
+           vec3 lit = diffuseColor.rgb * vec3( 1.42, 1.30, 1.12 );
+           float grey = dot( lit, vec3( 0.299, 0.587, 0.114 ) );
+           lit = mix( vec3( grey ), lit, 1.28 );
+           diffuseColor.rgb = mix( diffuseColor.rgb, clamp( lit, 0.0, 1.0 ), landMask * 0.78 + 0.35 );
          }`
       );
   };
@@ -1473,7 +1482,7 @@ function flyTo(item) {
   const worldPoint = local.clone();
   landmarksRoot.localToWorld(worldPoint);
   const dir = worldPoint.clone().normalize();
-  const dest = dir.multiplyScalar(2.68);
+  const dest = dir.multiplyScalar(3.4);
   const start = camera.position.clone();
   const startTarget = controls.target.clone();
   let t = 0;
@@ -1858,10 +1867,27 @@ canvas.addEventListener("touchend", (event) => {
 }, { capture: true, passive: true });
 canvas.addEventListener("touchcancel", () => { twistSample = null; }, { capture: true, passive: true });
 
-// Safari / WebKit trackpad rotate gesture.
+/**
+ * Dolly the camera along the ray toward the orbit target. OrbitControls already owns
+ * wheel and touch pinch; Safari trackpad pinch arrives only as a gesture* scale, and
+ * without this the preventDefault below ate progressive zoom and left two extremes.
+ */
+function dollyByFactor(factor) {
+  if (!Number.isFinite(factor) || factor <= 0 || Math.abs(factor - 1) < 1e-5) return;
+  const offset = camera.position.clone().sub(controls.target);
+  const distance = offset.length();
+  if (distance < 1e-6) return;
+  const next = THREE.MathUtils.clamp(distance / factor, controls.minDistance, controls.maxDistance);
+  offset.multiplyScalar(next / distance);
+  camera.position.copy(controls.target).add(offset);
+  controls.update();
+}
+
+// Safari / WebKit trackpad: rotation → flat roll, scale → progressive zoom.
 canvas.addEventListener("gesturestart", (event) => {
   event.preventDefault();
   gestureRotationDeg = 0;
+  gestureScale = 1;
   twistSample = null;
 }, { passive: false });
 canvas.addEventListener("gesturechange", (event) => {
@@ -1869,9 +1895,15 @@ canvas.addEventListener("gesturechange", (event) => {
   const deg = Number(event.rotation) || 0;
   rollEarthFlat(((deg - gestureRotationDeg) * Math.PI) / 180);
   gestureRotationDeg = deg;
+  const scale = Number(event.scale);
+  if (Number.isFinite(scale) && scale > 0) {
+    dollyByFactor(scale / gestureScale);
+    gestureScale = scale;
+  }
 }, { passive: false });
 canvas.addEventListener("gestureend", () => {
   gestureRotationDeg = 0;
+  gestureScale = 1;
   twistSample = null;
 }, { passive: true });
 
@@ -1917,6 +1949,9 @@ window.__ww = {
     return { x: Math.round(((p.x + 1) / 2) * w), y: Math.round(((1 - p.y) / 2) * h), z: p.z };
   },
   timing: () => ({ ...loadTiming }),
+  /** Camera distance from the orbit target; used to check that zoom steps stay progressive. */
+  camDist: () => camera.position.distanceTo(controls.target),
+  dolly: (factor) => dollyByFactor(factor),
   placeProbe: (lat, lon) => placeProbe(lat, lon),
   /**
    * Click marker against the ground beneath it, in metres. Clearance must stay positive or

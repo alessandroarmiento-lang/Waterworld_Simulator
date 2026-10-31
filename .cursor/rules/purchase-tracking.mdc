@@ -1,43 +1,22 @@
 ---
-description: Physical projects: log every purchase (cost, date, vendor) in a ledger and file the original receipt locally, never in git
+description: Any project: a receipt, invoice or order screenshot is a purchase; recognise it, pick the right project, archive it in the private vault
 alwaysApply: true
 ---
 
-# Registro acquisti (progetti con parti fisiche)
+# Acquisti e ricevute (da qualsiasi progetto)
 
-Vale per i progetti in cui si comprano componenti, materiali o strumenti. Ogni acquisto va registrato, senza aspettare che Alessandro lo chieda.
+Trigger: Alessandro manda, o c'è nel contesto, uno screen, una foto, un PDF o un testo che è uno scontrino, una fattura, una conferma d'ordine o di pagamento. Vale in qualsiasi progetto, anche in quello sbagliato.
 
-## Quando Alessandro manda uno screen, una foto o un PDF
+## Cosa fare, senza aspettare che lo chieda
 
-Fattura, scontrino, ordine online o conferma di pagamento: l'agente legge il documento, estrae i dati e li registra subito. Niente domande se i dati sono chiari. Se un dato è illeggibile o ambiguo, lo segna con `?` e fa una sola domanda raggruppata. Mai inventare un prezzo.
+1. Riconoscere il documento. Se non è un documento d'acquisto (dichiarazioni, referti, estratti conto, documenti d'identità), non registrarlo e dirlo in una riga.
+2. Trovare il vault privato sul Mac: il checkout nella cartella home che contiene `system/PURCHASES.md`. Leggere quel file e seguirlo: è l'unica fonte della procedura (registro, archivio degli originali, budget, report).
+3. Il progetto si decide dal contenuto del documento, non da dove è stato mandato. Se due progetti sono plausibili, una sola domanda.
+4. Rispondere in una riga: cosa è stato registrato, totale, data, negozio, progetto, stato del budget.
 
-## Dove va cosa
+## Regole fisse
 
-1. Dati strutturati: `purchases/ledger.csv` nel repo del progetto (un progetto = un registro). Si crea alla prima registrazione. Solo repo privati: in un repo pubblico il registro non si crea e non si pubblica; si chiede dove tenerlo.
-2. Originale (immagine o PDF): solo sul Mac, in `private/receipts/AAAA/AAAA-MM-GG_negozio_ID.ext` dentro la cartella del progetto. `private/` è già escluso da indice e commit. Controllare che `.gitignore` contenga `private/`; se manca, aggiungerlo prima di salvare il file.
-3. Il file originale non va mai in git, né in chat, né nel catalogo. Il registro lo richiama con l'ID.
-
-## Colonne del registro
-
-`id, data, progetto, voce, quantita, prezzo_unitario, totale, valuta, iva_inclusa, negozio, riferimento_ordine, tipo_documento, pagamento, uso, file_originale, note`
-
-- `data`: data dell'acquisto, `AAAA-MM-GG`.
-- `negozio`: nome del venditore e, se online, il sito.
-- `riferimento_ordine`: numero ordine o scontrino.
-- `tipo_documento`: scontrino, fattura, ordine online.
-- `pagamento`: solo il tipo (carta, contanti, bonifico, PayPal). Mai numeri di carta.
-- `uso`: personale o lavoro, se noto.
-- `file_originale`: percorso relativo sotto `private/receipts/`.
-- Un documento con più righe produce più righe nel registro con lo stesso `riferimento_ordine`. Spedizione e sconti sono voci a parte.
-
-## Cosa non scrivere mai nel registro
-
-Codice fiscale, IBAN, numeri di carta, indirizzo di casa, nome del cliente, dati sanitari o bancari che compaiono sul documento. Vale `sensitive-data-guard`.
-
-## Dopo ogni registrazione
-
-Dire in una riga cosa è stato registrato: voce, totale, data, negozio. Se il progetto ha un file di tracciamento, aggiungere il totale speso finora solo se lo chiede Alessandro.
-
-## Avviso
-
-L'originale esiste in una sola copia sul Mac. Va incluso nel backup (Time Machine o disco cifrato). Fino a quando non c'è un backup, ricordarlo una volta, non a ogni scontrino.
+- Ricevute, fatture e dati di pagamento non si salvano mai in questo repo, in nessun caso, nemmeno se pubblico.
+- Nel registro mai codice fiscale, IBAN, numeri di carta, indirizzo di casa, nome del cliente.
+- Se il vault non è raggiungibile (Cloud Agent, iPhone): non salvare nulla qui, dire che serve il Mac e riportare in chat i dati estratti.
+- Il report acquisti si mostra senza richiesta alla prima sessione di ogni mese e a richiesta.

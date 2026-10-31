@@ -1,0 +1,16 @@
+---
+description: Public GitHub docs must be English-only (all public repos)
+alwaysApply: true
+---
+
+# Public GitHub texts — English only
+
+Applies to **every public GitHub repo** Alessandro publishes (not only this project).
+
+README, CREDITS, LICENSE body, repo description, topics, release notes,
+and public-facing PR text: **English only**. No Italian/English mix.
+
+- Chat with Alessandro stays Italian.
+- In-app UI may stay Italian when that is the product language.
+- In public docs, English first; Italian UI labels in parentheses once
+  (e.g. Print (`Stampa`)).

@@ -1,0 +1,16 @@
+---
+description: On new project — list interaction rules in plain Italian, then apply them
+alwaysApply: true
+---
+
+# New project — state how we work
+
+When this is a **new** project (empty workspace, first chat here, or Alessandro says it is new):
+
+1. In the **first reply**, list the interaction rules in plain Italian.
+2. No jargon: no file names, no “.mdc”, no “hooks”, no “User Rules”, no “bootstrap”.
+3. Use the points in `interaction/NEW_PROJECT_LIST.txt` from the hub repo
+   `Regole e azioni per tutti i progetti` (or the same seven points in your own short words).
+4. Apply those rules for the whole project.
+5. Then set up GitHub sync for the project and continue the task.
+6. Do this **once** at project start, not every later session.

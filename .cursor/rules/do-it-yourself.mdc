@@ -1,0 +1,10 @@
+---
+description: Agent executes work itself; ask only for permissions/human-only steps
+alwaysApply: true
+---
+
+# Esegui tu
+
+Se puoi farlo tu (codice, script, shortcut, deploy, commit/land, comandi, file, browser, tool), fallo. Non chiedere ad Alessandro di eseguire passi che l’agente può fare.
+
+Se serve un permesso, approvazione UI, login interattivo, o un’azione solo umana (tap iPhone, biometria, secret assente): richiedi quello, poi continua tu.

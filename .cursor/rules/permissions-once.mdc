@@ -1,0 +1,8 @@
+---
+description: Browser/OS permissions — ask at most once, then reuse silently
+alwaysApply: true
+---
+
+# Permessi una volta sola
+
+Geolocalizzazione, notifiche, camera, microfono, ecc.: chiedi al massimo una volta. Dopo il consenso, non richiamare API che rifanno il dialogo Consenti. Persisti flag + dati e riusa. Se già granted o c’è un risultato salvato, procedi in silenzio.

@@ -1,0 +1,27 @@
+---
+description: When Alessandro says he is changing or setting up a new Mac, run the migration memo
+alwaysApply: true
+---
+
+# Mac migration reminder
+
+Trigger: Alessandro says he is about to change the primary computer, buy or set up a new Mac (MacBook Air, other), migrate, or restore a machine. Phrases like "cambio Mac", "nuovo Mac", "MacBook Air", "sto per migrare".
+
+When it fires, in Italian, before anything else:
+1. Say you have a migration memo and read it out as a short checklist. Do not wait to be asked again.
+2. The memo is `system/TODO.md` in the private personal vault on the Mac (the checkout that contains that file). The procedure stays `restore/NEW_MAC.md` in the hub. If those files are reachable, read them and follow them. If not, use the list below. Hub `catalog/TODO.md` is only a pointer.
+3. Walk through it step by step with him, doing yourself whatever the agent can do.
+
+Memo, items not automated yet:
+- Run `restore/export-config.sh` on the old Mac, then commit and push the hub.
+- Push every project; no unpushed or uncommitted work.
+- Final encrypted Time Machine backup; encrypted copy of the sensitive-data image on the Western Digital server and offsite.
+- Copy User Rules from `user-rules/` into Cursor Settings on the new Mac (manual).
+- Copy personal skills from `skills/` into `~/.cursor/skills/` (manual).
+- New Mac: FileVault on, `restore/new-mac-setup.sh`, restore the encrypted image and keep it out of Cursor and iCloud, restore documents and photos.
+- Re-enter sign-ins; recreate tokens not in the password manager. `SYNC_TOKEN` is a GitHub secret and needs nothing on the Mac.
+- Verify: a new chat on the hub reports the GitHub sync status; check a second project too.
+- Do not wipe the old Mac until the new one has run for a few days.
+- The scripts were never run on a clean Mac: test them and fix what breaks.
+
+Do not run this memo unless he mentions the migration.

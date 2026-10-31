@@ -1,0 +1,30 @@
+---
+description: Never open the sensitive-data volume and never commit sensitive files
+alwaysApply: true
+---
+
+# Sensitive data guard
+
+Sensitive data (identity, tax, health, bank, vehicle documents, passwords) stays on the Mac, encrypted, and out of git, chat, and catalog cards.
+
+## Volume
+
+Convention, not yet created by Alessandro:
+
+- Disk image outside every Cursor workspace and outside Desktop and Documents (iCloud).
+- When mounted, the volume name is `DatiSensibili` (`/Volumes/DatiSensibili`).
+
+Never list, open, or read that volume or the image. Never ask for a value that belongs there. For a form that needs one, leave a placeholder; Alessandro fills it in by hand.
+
+## Files
+
+Do not open identity, tax, health, bank, or password files. Names and dates only.
+
+Do not stage or commit:
+
+- `.env`, `.env.local` (`.env.example` and already-encrypted `*.enc` are allowed)
+- private keys (`*.key`, `*.pem` whose name does not contain `public`)
+- `private/`, `*.private.md`, `dati-personali-compilato*`
+- password databases and disk images (`*.kdbx`, `*.sparsebundle`)
+
+A pre-commit check (`deploy/block_sensitive_files.sh`) blocks those paths and staged text that matches a codice fiscale or an Italian IBAN. It prints the path only, never the value. Install it with `deploy/install_sensitive_guard.sh`.

@@ -1,0 +1,11 @@
+# Sensitive data — do not index
+private/
+*.private.md
+dati-personali-compilato*
+*.kdbx
+*.sparsebundle
+*.pem
+*.key
+.env
+.env.*
+!.env.example

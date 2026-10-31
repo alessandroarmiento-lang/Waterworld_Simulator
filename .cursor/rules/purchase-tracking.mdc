@@ -1,0 +1,43 @@
+---
+description: Physical projects: log every purchase (cost, date, vendor) in a ledger and file the original receipt locally, never in git
+alwaysApply: true
+---
+
+# Registro acquisti (progetti con parti fisiche)
+
+Vale per i progetti in cui si comprano componenti, materiali o strumenti. Ogni acquisto va registrato, senza aspettare che Alessandro lo chieda.
+
+## Quando Alessandro manda uno screen, una foto o un PDF
+
+Fattura, scontrino, ordine online o conferma di pagamento: l'agente legge il documento, estrae i dati e li registra subito. Niente domande se i dati sono chiari. Se un dato è illeggibile o ambiguo, lo segna con `?` e fa una sola domanda raggruppata. Mai inventare un prezzo.
+
+## Dove va cosa
+
+1. Dati strutturati: `purchases/ledger.csv` nel repo del progetto (un progetto = un registro). Si crea alla prima registrazione. Solo repo privati: in un repo pubblico il registro non si crea e non si pubblica; si chiede dove tenerlo.
+2. Originale (immagine o PDF): solo sul Mac, in `private/receipts/AAAA/AAAA-MM-GG_negozio_ID.ext` dentro la cartella del progetto. `private/` è già escluso da indice e commit. Controllare che `.gitignore` contenga `private/`; se manca, aggiungerlo prima di salvare il file.
+3. Il file originale non va mai in git, né in chat, né nel catalogo. Il registro lo richiama con l'ID.
+
+## Colonne del registro
+
+`id, data, progetto, voce, quantita, prezzo_unitario, totale, valuta, iva_inclusa, negozio, riferimento_ordine, tipo_documento, pagamento, uso, file_originale, note`
+
+- `data`: data dell'acquisto, `AAAA-MM-GG`.
+- `negozio`: nome del venditore e, se online, il sito.
+- `riferimento_ordine`: numero ordine o scontrino.
+- `tipo_documento`: scontrino, fattura, ordine online.
+- `pagamento`: solo il tipo (carta, contanti, bonifico, PayPal). Mai numeri di carta.
+- `uso`: personale o lavoro, se noto.
+- `file_originale`: percorso relativo sotto `private/receipts/`.
+- Un documento con più righe produce più righe nel registro con lo stesso `riferimento_ordine`. Spedizione e sconti sono voci a parte.
+
+## Cosa non scrivere mai nel registro
+
+Codice fiscale, IBAN, numeri di carta, indirizzo di casa, nome del cliente, dati sanitari o bancari che compaiono sul documento. Vale `sensitive-data-guard`.
+
+## Dopo ogni registrazione
+
+Dire in una riga cosa è stato registrato: voce, totale, data, negozio. Se il progetto ha un file di tracciamento, aggiungere il totale speso finora solo se lo chiede Alessandro.
+
+## Avviso
+
+L'originale esiste in una sola copia sul Mac. Va incluso nel backup (Time Machine o disco cifrato). Fino a quando non c'è un backup, ricordarlo una volta, non a ogni scontrino.

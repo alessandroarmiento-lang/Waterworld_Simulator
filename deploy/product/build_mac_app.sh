@@ -2,10 +2,10 @@
 # Build "Waterworld Simulator 1.0.app" in the project root (double-click launcher).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 APP="$ROOT/Waterworld Simulator 1.0.app"
-ICON_PNG="${1:-$ROOT/deploy/assets/waterworld-app-icon.png}"
-ICON_ICNS="$ROOT/deploy/assets/AppIcon.icns"
+ICON_PNG="${1:-$ROOT/deploy/product/assets/waterworld-app-icon.png}"
+ICON_ICNS="$ROOT/deploy/product/assets/AppIcon.icns"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -51,7 +51,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SIM="$ROOT/sea-level-sim"
-START="$ROOT/deploy/start_waterworld.command"
+START="$ROOT/deploy/product/start_waterworld.command"
 URL="http://127.0.0.1:8000"
 
 alert() {

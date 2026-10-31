@@ -34,14 +34,26 @@ if [[ "$src" == "HEAD" ]]; then
 fi
 
 PUSH_HELPER=()
-if command -v gh >/dev/null 2>&1; then
+origin_url="$(git remote get-url origin 2>/dev/null || true)"
+if [[ "$origin_url" == *origin.cursor.com* ]] && command -v origin >/dev/null 2>&1; then
+  ORIGIN_BIN="$(command -v origin)"
+  PUSH_HELPER=(-c "credential.helper=" -c "credential.helper=!${ORIGIN_BIN} credential-helper")
+elif command -v gh >/dev/null 2>&1; then
   PUSH_HELPER=(-c "credential.helper=" -c "credential.helper=!$(command -v gh) auth git-credential")
 fi
+
+run_after_land() {
+  local hook="$ROOT/deploy/product/after_land.sh"
+  if [[ -x "$hook" ]]; then
+    "$hook" || exit 1
+  fi
+}
 
 if [[ "$src" == "main" ]]; then
   git fetch origin main --quiet || true
   if git "${PUSH_HELPER[@]}" push origin main; then
     echo "LAND_ON_MAIN: already on main — pushed"
+    run_after_land
     exit 0
   fi
   # Report the difference instead of a maybe: "nothing to push" and "origin refused it"
@@ -49,6 +61,7 @@ if [[ "$src" == "main" ]]; then
   if git rev-parse --verify origin/main >/dev/null 2>&1 \
     && git merge-base --is-ancestor HEAD origin/main; then
     echo "LAND_ON_MAIN: already on main — nothing to push"
+    run_after_land
     exit 0
   fi
   echo "LAND_ON_MAIN: push to main failed — work is NOT on origin/main"
@@ -104,4 +117,5 @@ fi
 
 git checkout "$here" 2>/dev/null || git checkout "$src" 2>/dev/null || true
 echo "LAND_ON_MAIN: ${src} → origin/main OK"
+run_after_land
 exit 0

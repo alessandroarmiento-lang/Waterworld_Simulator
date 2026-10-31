@@ -2,7 +2,7 @@
 # Double-clickable / opened by Waterworld Simulator 1.0.app
 # Runs in Terminal so macOS Desktop privacy allows reading .venv.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SIM="$ROOT/sea-level-sim"
 cd "$SIM"
 if [[ ! -x .venv/bin/python ]]; then

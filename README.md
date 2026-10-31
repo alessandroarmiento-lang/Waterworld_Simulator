@@ -6,9 +6,9 @@ Offline **3D sea-level globe**: raise the oceans (0–9000 m), explore coasts, p
 
 | Who | How |
 | --- | --- |
-| **macOS (quick)** | Download the app from [Latest release](https://github.com/alessandroarmiento-lang/Waterworld_Simulator/releases/latest), unzip, double-click `Waterworld Simulator 1.0.app` (opens Terminal + browser). Or double-click `deploy/start_waterworld.command` from a clone. |
+| **macOS (quick)** | Download the app from [Latest release](https://github.com/alessandroarmiento-lang/Waterworld_Simulator/releases/latest), unzip, double-click `Waterworld Simulator 1.0.app` (opens Terminal + browser). Or double-click `deploy/product/start_waterworld.command` from a clone. |
 | **From source** | See [Run](#run) below. First launch may download DEM / Blue Marble textures if missing (~hundreds of MB). |
-| **Rebuild Mac app** | `./deploy/build_mac_app.sh` |
+| **Rebuild Mac app** | `./deploy/product/build_mac_app.sh` |
 
 **Controls & details:** [`sea-level-sim/README.md`](sea-level-sim/README.md)
 

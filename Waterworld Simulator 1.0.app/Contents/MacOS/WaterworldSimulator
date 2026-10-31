@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 SIM="$ROOT/sea-level-sim"
-START="$ROOT/deploy/start_waterworld.command"
+START="$ROOT/deploy/product/start_waterworld.command"
 URL="http://127.0.0.1:8000"
 
 alert() {

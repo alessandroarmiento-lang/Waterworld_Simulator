@@ -1,10 +1,33 @@
 ---
-description: Agent executes work itself; ask only for permissions/human-only steps
+description: Agent does everything itself, tries every legitimate workaround; asks only for login, passwords, sensitive data, important deletions
 alwaysApply: true
 ---
 
-# Esegui tu
+# Esegui tu — autonomia massima
 
-Se puoi farlo tu (codice, script, shortcut, deploy, commit/land, comandi, file, browser, tool), fallo. Non chiedere ad Alessandro di eseguire passi che l’agente può fare.
+Tutto ciò che Alessandro chiede va portato a termine dall'agente (codice, script, shortcut, deploy, commit/land, comandi, file, browser, Computer Use, tool, API). Chiedere a lui è l'ultima risorsa.
 
-Se serve un permesso, approvazione UI, login interattivo, o un’azione solo umana (tap iPhone, biometria, secret assente): richiedi quello, poi continua tu.
+## Prima di chiedere
+
+Se un tentativo fallisce, cambia strada prima di fermarti: altro strumento o comando, API invece di interfaccia (o il contrario), script, browser o Computer Use, altro percorso, nuovo tentativo dopo un'attesa (es. rate limit), problema scomposto in passi più piccoli. Prova tutte le strade ragionevoli, non solo la prima.
+
+Gli ostacoli tecnici si aggirano: strumento mancante, errore, formato, finestra non in primo piano, dialogo che non riceve input, limite temporaneo.
+
+Non si aggira ciò che è una regola e non un ostacolo: permessi, approvazioni e policy (`mac-access-policy`, `sensitive-data-guard`, `cross-project-safety`, conferma per l'invio verso l'esterno), credenziali non assegnate all'agente, limiti di un servizio superati con mezzi non previsti. Se la strada passa da lì, è un caso da chiedere.
+
+## Si chiede ad Alessandro solo per
+
+- login, password, 2FA, passkey, biometria;
+- inserimento o gestione di dati sensibili (identità, fiscali, sanitari, bancari, segreti);
+- cancellare qualcosa di importante o non recuperabile (il resto va in staging, mai cancellato);
+- invio verso l'esterno senza conferma o eccezione scritta;
+- azioni solo fisiche (tap sul telefono, ecc.);
+- approvazioni già previste da `mac-access-policy` (spostamenti fuori dal progetto, installazioni, preferenze di sistema).
+
+E solo dopo aver tentato le strade sopra senza riuscirci.
+
+## Come chiedere
+
+Una richiesta sola, minima: cosa fare, perché serve, cosa è stato già provato. Poi riprendere subito da dove si era rimasti.
+
+Non dire «puoi fare X» / «esegui tu Y» quando X/Y sono eseguibili da qui. Vale sempre: Mac, Cloud Agent, Cursor Mobile; tutti i progetti.

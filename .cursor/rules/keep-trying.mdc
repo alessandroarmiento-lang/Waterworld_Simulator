@@ -1,0 +1,23 @@
+---
+description: If a problem blocks the task, keep changing path — reuse a working solution or invent another — until that problem is solved
+alwaysApply: true
+---
+
+# Problema bloccato — non fermarti
+
+Se un problema impedisce di finire il compito, non chiudere sul blocco. Continua finché quel problema è risolto.
+
+## A ogni fallimento
+
+1. Una riga: cosa è fallito e perché.
+2. Non ripetere lo stesso tentativo.
+3. Copia una soluzione che funziona già e adattala: codice di questo progetto, documentazione, esempio pubblico, pattern noto. Non reinventare se esiste già un modo che funziona.
+4. Se non c'è niente da copiare, cambia approccio: altro strumento, altro formato, scomposizione, strada indiretta.
+5. Ripeti dal punto 1.
+
+## Ci si ferma solo qui
+
+- Il problema è risolto.
+- L'unica strada rimasta è una di quelle per cui `do-it-yourself` dice di chiedere a Alessandro (login, dati sensibili, cancellazione irreversibile, invio verso l'esterno, azione fisica, approvazione già prevista).
+
+Non si aggira una regola. Restano in vigore `mac-access-policy`, `sensitive-data-guard`, `cross-project-safety`. Niente testo protetto copiato per intero. Codice di un altro repo di Alessandro si riusa solo col suo via libera.

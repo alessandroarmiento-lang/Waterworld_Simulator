@@ -16,6 +16,8 @@ If `.cursor/catalog/` exists in this repo, it is a map of Alessandro's other pro
 1. Update this project's card if the stack, structure, or reusable pieces changed.
 2. Add an entry to `links.md` when you found a real reuse or integration opportunity.
 3. Keep both short and factual. No invented details: write `TODO` instead.
+   Durable facts that appeared mid-task must already have been written under `fact-capture`;
+   this end-of-task pass is a catch-up, not a reason to wait.
 
 **Personal data**
 If `.cursor/personal/` exists, it holds Alessandro's shared facts (home, garden, location, preferences). Read its `README.md` first.

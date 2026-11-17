@@ -1,0 +1,40 @@
+---
+description: When useful facts appear and more detail would help, propose a browser intake form — then open it only after he agrees
+alwaysApply: true
+---
+
+# Intake form (deepen facts in the browser)
+
+When Alessandro is giving **durable useful information** about a domain (home, garden,
+devices, preferences, projects, people roles, …) and the typed store has **empty
+high-value fields** for that domain, offer **once** to open a short browser form.
+
+## Propose (do not open yet)
+
+One short question, for example:
+«Sto registrando questi fatti. Posso aprirti un modulo con i campi già detti più quelli
+utili ancora vuoti?»
+
+Skip if: trivial turn; he already declined this topic this chat; only secrets/sensitive
+would fill the gaps; Cloud/iPhone without Mac (describe fields in chat instead).
+
+## After he agrees (Mac)
+
+1. Build fields: what he already said (**pre-filled**) + important empty fields from the
+   matching `system/personal-data/*.md` sheet (or inbox if no sheet fits).
+2. Cap about **8–12 fields**. No password, CF, IBAN, clinical health, exact document numbers.
+3. Run:
+
+```bash
+python3 scripts/intake_form.py open --title "…" --dest "07-giardino-orto-piante.md" \
+  --field "Label|prefilled value|hint" \
+  --field "Empty useful field||why it helps"
+```
+
+4. When saved, confirm path in one line; apply `fact-capture` / `proactive-recall` as usual.
+
+## Efficiency
+
+- At most one form proposal per topic per chat.
+- Prefer updating an existing personal-data sheet over a new inbox note.
+- Never block the main task waiting on the form; he can fill it while you continue.

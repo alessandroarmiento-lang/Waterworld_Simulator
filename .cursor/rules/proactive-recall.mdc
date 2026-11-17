@@ -1,0 +1,53 @@
+---
+description: Efficient proactive recall — once per task/topic, ≤2–3 facts, cheap sources first, silence if none
+alwaysApply: true
+---
+
+# Proactive recall (optimized)
+
+Surface useful stored knowledge **without being asked**. Optimize for speed and
+low noise: few lookups, early stop, no repeats.
+
+## Skip entirely (efficiency)
+
+Do **not** run recall when:
+
+- The turn is trivial (typo, yes/no, one-line fix, pure code edit with no domain choice).
+- You already surfaced recall for this same task/topic in this chat.
+- `project-kickoff` or `cross-project-awareness` already loaded the same cards/facts
+  this turn — reuse that; do not re-read.
+
+## Timing
+
+- **Once** at task start, or when the topic **clearly changes**.
+- Never every message. Never “I checked and found nothing”.
+
+## Lookup budget (cheap → expensive; stop at 2–3 useful items)
+
+| Priority | Source | Cost rule |
+|---|---|---|
+| 1 | `life/profile/core.md` in the vault (if reachable) | One short file only |
+| 2 | One matching `.cursor/catalog/projects/<name>.md` and, if needed, one `links.md` skim | Only projects named or clearly implied by the task |
+| 3 | One relevant `system/personal-data/` sheet **or** one `life/` / `work/` note | Open a sheet only if the task touches that area (home, garden, …) |
+| 4 | `work/attention/current.md` | Only if the task is planning / priorities / “what next” |
+| 5 | Chat archive search | **Last resort**, Mac only, and only if 1–4 are thin. One `chat_archive.py search` with 1–3 keywords. Never open `cloud_safe: false` off the Mac. |
+
+Hard cap: **at most four reads** for recall in one turn. Prefer zero archive calls.
+
+Vault path: checkout under home that contains `system/GLOBAL_INSTRUCTIONS.md`.
+If unreachable (Cloud / iPhone): use catalog in the current repo only; skip vault and archive.
+
+## Delivery
+
+- At most **2–3** facts or pointers, a few lines, then continue the real work in the same reply.
+- Format: short bullets (“Già in vault: …”, “Catalogo: …”) — no preamble.
+- If nothing relevant: **silence**.
+- Never delay the main task for deeper search.
+- New durable fact found only in chat/archive → write via `fact-capture`, do not paste a transcript.
+
+## Never
+
+- Invent memory.
+- Dump transcripts.
+- Re-state standing chat rules he already lives by (Italian replies, etc.) unless the task needs them.
+- Parallel “full vault scan” or multi-query archive fishing.

@@ -11,6 +11,10 @@ mkdir -p "$STAMP_DIR"
 STAMP="${STAMP_DIR}/last-check.stamp"
 MAX_AGE_SEC="${GITHUB_CHECK_MAX_AGE:-45}"
 
+if [[ "$(uname -s)" == "Darwin" && -x "$ROOT/deploy/clone_missing_repos.sh" ]]; then
+  "$ROOT/deploy/clone_missing_repos.sh" 2>&1 | tail -n 20 || true
+fi
+
 now="$(date +%s)"
 if [[ -f "$STAMP" ]]; then
   last="$(cat "$STAMP" 2>/dev/null || echo 0)"

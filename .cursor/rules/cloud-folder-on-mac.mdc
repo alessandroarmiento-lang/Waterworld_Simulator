@@ -1,0 +1,20 @@
+---
+description: A folder or repo created in the cloud must also exist on the Mac disk
+alwaysApply: true
+---
+
+# Cloud folder → Mac disk
+
+A project folder or GitHub repo created from Cloud Agent or iPhone must also exist as a checkout on the Mac, in the home folder, next to the other projects.
+
+## Agent
+
+1. After the repo exists on GitHub and `main` is pushed, clone it on the Mac when a self-hosted worker is available (`$HOME/<repo-name>`).
+2. If this session cannot reach the Mac, do not ask Alessandro to clone. The Mac hook downloads missing repos.
+3. One line in the reply: the folder is already on the Mac, or it will appear at the next Mac session.
+
+## Mac
+
+On session start, `deploy/check_github_before_work.sh` runs `deploy/clone_missing_repos.sh` (Mac only). That script clones owned, non-archived repos that have no local checkout. It does not move or delete existing folders.
+
+Cursor chats still do not move between cloud and Mac. The repository folder does.

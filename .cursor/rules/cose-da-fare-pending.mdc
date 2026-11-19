@@ -1,0 +1,53 @@
+---
+description: From any project/chat, open one Cloud Agent chat on cose_da_fare per macro problem; nest minor issues inside that chat
+alwaysApply: true
+---
+
+# Pending / errors → cose_da_fare chats
+
+Applies to **every** Alessandro project and **every** chat (new or in progress): Mac Cursor, Cloud Agent, Cursor Mobile.
+
+## Goal
+
+Incomplete work, errors hit, fixes still open, and other “da sistemare” items must not stay only in the source chat. They land as **Cloud Agent chats on the private repo `cose_da_fare`**.
+
+## Grain
+
+- **One chat per macro-topic or major problem** (notable blocker, recurring failure, open fix track, multi-step pending theme).
+- **Inside that chat:** full context plus the **minor / sub-problems** as a structured list the agent there can work down.
+- Do **not** open a separate chat for each tiny sub-item.
+- Skip noise: typos, one-line local fixes you are finishing in the same turn, pure trivia.
+
+## What to do, without being asked
+
+When a macro pending/error appears (or becomes clear mid-chat):
+
+1. Continue the current task (do not abandon it).
+2. Open or resume **one** Cloud Agent chat on repo  
+   `https://github.com/alessandroarmiento-lang/cose_da_fare`  
+   titled for that macro (short, stable name).
+3. Seed / follow-up that chat with: source project, source chat URL or id if known, summary, reproduction or evidence, and a checklist of sub-issues.
+4. In the source chat, one line: macro name + link/id of the `cose_da_fare` chat (or that open failed and why).
+
+## Dedup
+
+- Same macro already has an **open/active** chat on `cose_da_fare` → **resume** it (follow-up run / message), do not open a duplicate.
+- Macro resolved and closed → a new occurrence may open a new chat.
+- If unsure whether two themes are the same macro, prefer **one** chat and nest the second theme as a sub-section.
+
+## How to open (try in order)
+
+1. **Cloud Agents API** `POST /v1/agents` with `repos[0].url` = the `cose_da_fare` GitHub URL and a prompt that states the macro + sub-issues; later updates via create-run on the same agent id. Use a Cursor API key from secrets/env if available — never ask Alessandro to paste the key in chat.
+2. Else **Task** with `machine: { type: "new_cloud_vm", repo_url: "https://github.com/alessandroarmiento-lang/cose_da_fare" }` and a seed prompt for that macro (RequestAccess first if required).
+3. If both fail: say so in one line in the source chat; do **not** invent a fake chat. Keep a short local note only if the project already has an approved pending file pattern — never dump secrets.
+
+## Exceptions
+
+- Already **inside** a `cose_da_fare` chat for that same macro → update that chat (add sub-issues); do not spawn another for the same macro.
+- Sensitive data (identity, tax, health, bank, passwords) → never put values in the pending chat; names/dates only, same as `sensitive-data-guard`.
+
+## Relation to other rules
+
+- Does not replace `fact-capture` (durable facts still go to vault/catalog).
+- Does not merge repos; product work stays in the source repo; `cose_da_fare` holds the pending chat track.
+- Hub sync: canonical copy lives in `Regole_e_azioni_per_tutti_i_progetti`.

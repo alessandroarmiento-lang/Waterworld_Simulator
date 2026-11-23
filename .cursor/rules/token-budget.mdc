@@ -1,0 +1,19 @@
+---
+description: Token budget — stay on the open model, small reads, local batch
+alwaysApply: true
+---
+
+# Token budget
+
+Le altre regole restano in vigore. Il sync Git resta `deploy/check_github_before_work.sh` e, a lavoro finito, `deploy/land_on_main.sh`.
+
+- Resta sul modello già aperto in chat. Non chiedere un modello più pesante e non proporre MAX mode. Un sottoagente Sonnet solo se in quel messaggio è stato chiesto.
+- Per una ricerca basta un Grep o un file: niente sottoagenti. Leggi solo l’intervallo che serve alla modifica. Se la prima ricerca ha già la risposta, fermala. Dopo una modifica, rileggi quel file.
+- In risposta: esito e percorso. Non incollare file, log o diff interi.
+- Se cambia argomento, non riassumere quello precedente e non chiedere una chat nuova a cadenza fissa.
+- Fact-capture, catalogo e il controllo GitHub restano, nella forma corta già prevista.
+- `cose_da_fare`: un macro ancora aperto si apre o si aggiorna anche se il compito di questo messaggio è finito. Una chat nuova non si apre per un lavoro già chiuso.
+- Script schedulati che chiamano un LLM: input troncato, al massimo due ritentativi, Ollama sul Mac mini. Quel tetto non vale per la catena del mattino di Second Brain, né per i ritentativi di Pi e irrigazione. La chat interattiva resta sul modello già aperto.
+- Negli script già su Ollama non aggiungere chiamate a modelli cloud. Le card `cloud_safe: false` restano sul Mac.
+- Report, ingest o ricerca d’archivio: se lo script c’è già, sul Mac lancialo dal percorso del LaunchAgent e leggi solo il riepilogo. Second Brain: `~/Brain/second-brain`. The Daily Tailor: `~/Brain/projects/the-daily-tailor`. Da Cloud Agent o iPhone non lanciare quegli script e non ricostruire il risultato con il modello cloud.
+- Un fatto catturato si scrive nel vault; in chat resta una riga. Il report periodico resta il file dello script.

@@ -1,53 +1,56 @@
 ---
-description: Efficient proactive recall — once per task/topic, ≤2–3 facts, cheap sources first, silence if none
+description: Balanced recall — light by default, rich on life topics or explicit ask, transparency only when omission would mislead
 alwaysApply: true
 ---
 
-# Proactive recall (optimized)
+# Proactive recall (balanced)
 
-Surface useful stored knowledge **without being asked**. Optimize for speed and
-low noise: few lookups, early stop, no repeats.
+Surface useful stored knowledge **without being asked**, with three modes.
+**Search deep when it matters; weave facts into answers; narrate the search only when
+silence would mislead.**
 
-## Skip entirely (efficiency)
+## Mode selection (each turn)
 
-Do **not** run recall when:
+| Mode | When | Reads | In the reply |
+|---|---|---|---|
+| **Light** | Trivial turn; pure code with no domain choice; recall already done for this task/topic; kickoff/cross-project-awareness already loaded the same facts | At most **four** reads; stop at 2–3 useful items; archive last | **Magic + silence**: weave any facts into the answer. No “Già in vault”, no “I checked…”. If nothing relevant: silence. |
+| **Rich** | **Explicit recall** (he asks what you know, history, “ricorda”, “cerca”, archive, vault) **or** **life/planning topic**: home, garden, priorities, purchases/receipts, travel, non-clinical health habits, in-home tech/devices, money choices that need context | Open **all sources that plausibly apply** on this host (profile, matching catalog cards, relevant `personal-data` sheets, `life/` / `work/` notes, `work/attention/current.md`; on Mac one archive query if still thin) | **Rich, low meta**: answer fully; facts in prose, not a transcript. Bullets only when listing many items helps. Still no search diary. |
+| **Transparent** | Only inside **Rich**, and only when skipping a source would make the answer **overconfident** | N/A | **One short line**: what you could not consult (vault unreachable on Cloud/iPhone, archive Mac-only, or you only used catalog when he asked “what we know”). Not when facts already support a solid answer. |
 
-- The turn is trivial (typo, yes/no, one-line fix, pure code edit with no domain choice).
-- You already surfaced recall for this same task/topic in this chat.
-- `project-kickoff` or `cross-project-awareness` already loaded the same cards/facts
-  this turn — reuse that; do not re-read.
+Never use Transparent for code-only work or when Light mode applies.
+
+## Skip Light recall entirely
+
+- Typo, yes/no, one-line fix, pure code edit with no domain choice.
+- You already ran Rich or Light recall for this same task/topic in this chat — reuse; do not re-read.
 
 ## Timing
 
-- **Once** at task start, or when the topic **clearly changes**.
-- Never every message. Never “I checked and found nothing”.
+- **Light**: once at task start, or when the topic clearly changes (non-life).
+- **Rich**: when explicit recall or a life/planning topic appears (new or shift).
+- Never every message. Never “I checked and found nothing.”
 
-## Lookup budget (cheap → expensive; stop at 2–3 useful items)
+## Lookup order (cheap → expensive)
 
-| Priority | Source | Cost rule |
-|---|---|---|
-| 1 | `life/profile/core.md` in the vault (if reachable) | One short file only |
-| 2 | One matching `.cursor/catalog/projects/<name>.md` and, if needed, one `links.md` skim | Only projects named or clearly implied by the task |
-| 3 | One relevant `system/personal-data/` sheet **or** one `life/` / `work/` note | Open a sheet only if the task touches that area (home, garden, …) |
-| 4 | `work/attention/current.md` | Only if the task is planning / priorities / “what next” |
-| 5 | Chat archive search | **Last resort**, Mac only, and only if 1–4 are thin. One `chat_archive.py search` with 1–3 keywords. Never open `cloud_safe: false` off the Mac. |
+1. `life/profile/core.md` (vault, Mac)
+2. Matching `.cursor/catalog/projects/<name>.md` and, if needed, one `links.md` skim
+3. Relevant `system/personal-data/` sheet(s)
+4. One `life/` or `work/` note when the task needs it
+5. `work/attention/current.md` for planning / “what next”
+6. Chat archive: **Mac only**, one `chat_archive.py search`, 1–3 keywords; never `cloud_safe: false` off the Mac
 
-Hard cap: **at most four reads** for recall in one turn. Prefer zero archive calls.
+Vault: checkout under home containing `system/GLOBAL_INSTRUCTIONS.md`.
+If vault unreachable (Cloud / iPhone): Rich mode still uses catalog + `.cursor/personal/`; Transparent one line only if the task needs vault-only facts.
 
-Vault path: checkout under home that contains `system/GLOBAL_INSTRUCTIONS.md`.
-If unreachable (Cloud / iPhone): use catalog in the current repo only; skip vault and archive.
+## Delivery rules
 
-## Delivery
-
-- At most **2–3** facts or pointers, a few lines, then continue the real work in the same reply.
-- Format: short bullets (“Già in vault: …”, “Catalogo: …”) — no preamble.
-- If nothing relevant: **silence**.
-- Never delay the main task for deeper search.
-- New durable fact found only in chat/archive → write via `fact-capture`, do not paste a transcript.
+- **Light**: at most 2–3 facts woven in; silence if none.
+- **Rich**: use what you found; do not pad; do not dump transcripts.
+- New durable fact from chat/archive → `fact-capture`; do not paste archive text.
+- Never delay the main task with parallel vault fishing or multi-query archive runs.
 
 ## Never
 
 - Invent memory.
-- Dump transcripts.
-- Re-state standing chat rules he already lives by (Italian replies, etc.) unless the task needs them.
-- Parallel “full vault scan” or multi-query archive fishing.
+- Dump transcripts or restate standing chat rules unless the task needs them.
+- Meta-narration (“opening core.md…”) when Light applies or when Rich already answered well.

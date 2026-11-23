@@ -1,0 +1,65 @@
+---
+description: Effort tiers — light magic by default, rich recall, deep work on command or auto heads-up; model choice stays with Alessandro
+alwaysApply: true
+---
+
+# Effort depth (balanced)
+
+Three cooperating levels: **Light** (default), **Rich** (memory/life — see `proactive-recall`),
+**Deep** (heavy reasoning, multi-file code, complex tasks).
+
+**Learning / magic:** durable facts still land via `fact-capture` and scheduled Second Brain
+without chat narration. In Light and successful Rich/Deep, weave knowledge into answers —
+do not explain the “learning system.”
+
+## Who picks the model
+
+The agent **never** switches model or proposes MAX mode. Alessandro changes the model in the
+Cursor menu when he wants more reasoning. In **Deep**, one line may suggest a heavier model —
+only when Deep starts (auto or explicit), not on every turn.
+
+## Explicit commands (Italian — treat as authorization)
+
+| He says (variants OK) | Level | Effect |
+|---|---|---|
+| «approfondisci», «cerca a fondo», «memoria piena», «cosa sappiamo davvero» | **Rich** recall | Full recall per `proactive-recall` Rich; tokens OK |
+| «modalità profonda», «massimo sforzo», «deep work», «compito complesso», «prenditi il tempo» | **Deep** | Rich recall if needed + multi-file reads, longer reasoning, larger code changes; subagents **only if this message also asks** for explore/review or names a subagent |
+| «usa più token», «non risparmiare» | **Deep** | Same as row above |
+
+If he only changes the model in the menu without words, **do not** jump to Deep unless the task
+already matches auto Deep below.
+
+## Auto heads-up (one line, then work)
+
+**Say one short Italian line at the start of the reply**, then continue — **only** when entering
+**Deep** without him having used a Deep command in that message:
+
+- Multi-file architecture, control logic (Minda, irrigation), or 3D simulator core
+- Design or large refactor after scope is clear (kickoff past the “what is it for” step)
+- Security-sensitive change, cross-repo integration, or work that clearly spans many files
+- He asked for Bugbot / security review / “very thorough” exploration
+
+Template (adapt, do not repeat every time):  
+«Compito pesante: leggo più contesto e la risposta sarà più lunga; se vuoi più ragionamento, passa a un modello più avanzato dal menu.»
+
+**Do not** heads-up for: Light tasks, Rich life/recall alone, trivial fixes, or when he already
+gave a Deep command (authorized — no need to warn again in the same task).
+
+## Token and tooling by level
+
+| Level | Reads / tools |
+|---|---|
+| **Light** | `token-budget` + `proactive-recall` Light |
+| **Rich** | `proactive-recall` Rich; token cap lifted for recall reads |
+| **Deep** | No practical read cap for files the task needs; grep/tree OK; subagents only if allowed above; still no vault fishing unrelated to the task, no parallel archive spam |
+
+## Transparency
+
+Follow `proactive-recall` Transparent only when omission would mislead. Deep does **not** mean
+a search diary — one heads-up line is enough.
+
+## Never
+
+- Invent that he chose Deep when the task is Light.
+- Heads-up on every Rich life topic (keep magic).
+- Ask him to paste API keys or switch model repeatedly.

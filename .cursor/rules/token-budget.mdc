@@ -7,7 +7,8 @@ alwaysApply: true
 
 Le altre regole restano in vigore. Il sync Git resta `deploy/check_github_before_work.sh` e, a lavoro finito, `deploy/land_on_main.sh`.
 
-- Resta sul modello già aperto in chat. Non chiedere un modello più pesante e non proporre MAX mode. Un sottoagente Sonnet solo se in quel messaggio è stato chiesto.
+- Resta sul modello già aperto in chat. Non proporre MAX mode. Non chiedere un modello più pesante, salvo la riga unica qui sotto. Un sottoagente Sonnet solo se in quel messaggio è stato chiesto.
+- Nuovo progetto, dopo che lo scopo è descritto: una riga sola. Se il modello aperto è già leggero, «resta su questo». Sonnet solo se lo scopo è architettura su tanti file, logica di controllo (Minda, irrigazione) o il nucleo 3D del simulatore. Negli altri casi Sonnet fa spendere di più. Niente menu. Niente consiglio a ogni chat nuova.
 - Per una ricerca basta un Grep o un file: niente sottoagenti. Leggi solo l’intervallo che serve alla modifica. Se la prima ricerca ha già la risposta, fermala. Dopo una modifica, rileggi quel file.
 - In risposta: esito e percorso. Non incollare file, log o diff interi.
 - Se cambia argomento, non riassumere quello precedente e non chiedere una chat nuova a cadenza fissa.

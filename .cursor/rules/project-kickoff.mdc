@@ -7,6 +7,8 @@ alwaysApply: true
 
 Trigger: Alessandro describes the purpose, goal, or concept of a project (new, or newly scoped) in chat, by text or voice.
 
+If this is a new project and the purpose is still only a name or a sentence, ask once — what it must do, for whom, and what done looks like — and do not start the report. If that question was already asked in this chat, wait.
+
 Before proposing a plan or writing code:
 
 1. **Foundations.** The always-on rules already loaded are the base for every project. Do not restate them.
